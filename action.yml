@@ -1,0 +1,196 @@
+name: 'Better-DBT-Metrics Compiler'
+description: 'Compile Better-DBT-Metrics to dbt semantic models'
+author: 'Better-DBT-Metrics Team'
+
+inputs:
+  metrics-dir:
+    description: 'Directory containing metrics files'
+    required: false
+    default: 'metrics/'
+  output-dir:
+    description: 'Output directory for compiled models'
+    required: false
+    default: 'models/semantic/'
+  template-dirs:
+    description: 'Template directories (comma-separated)'
+    required: false
+    default: 'templates/'
+  validate-only:
+    description: 'Only validate, do not compile'
+    required: false
+    default: 'false'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
+  fail-on-warning:
+    description: 'Fail validation on warnings'
+    required: false
+    default: 'false'
+  upload-artifacts:
+    description: 'Upload compiled models as artifacts'
+    required: false
+    default: 'true'
+  comment-on-pr:
+    description: 'Comment validation results on PR'
+    required: false
+    default: 'true'
+
+outputs:
+  validation-passed:
+    description: 'Whether validation passed'
+    value: ${{ steps.validate.outputs.passed }}
+  metrics-count:
+    description: 'Number of metrics compiled'
+    value: ${{ steps.compile.outputs.metrics_count }}
+  models-count:
+    description: 'Number of semantic models generated'
+    value: ${{ steps.compile.outputs.models_count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-better-dbt-metrics
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install Better-DBT-Metrics
+      shell: bash
+      run: |
+        pip install --upgrade pip
+        pip install better-dbt-metrics
+        
+    - name: Validate metrics
+      id: validate
+      shell: bash
+      run: |
+        echo "🔍 Validating metrics in ${{ inputs.metrics-dir }}..."
+        
+        VALIDATE_CMD="better-dbt-metrics validate --input-dir ${{ inputs.metrics-dir }} -v"
+        
+        if [ "${{ inputs.fail-on-warning }}" == "true" ]; then
+          VALIDATE_CMD="$VALIDATE_CMD --fail-on-warning"
+        fi
+        
+        if $VALIDATE_CMD; then
+          echo "✅ Validation passed"
+          echo "passed=true" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Validation failed"
+          echo "passed=false" >> $GITHUB_OUTPUT
+          if [ "${{ inputs.validate-only }}" == "true" ]; then
+            exit 1
+          fi
+        fi
+        
+    - name: Compile metrics
+      id: compile
+      if: ${{ inputs.validate-only == 'false' && steps.validate.outputs.passed == 'true' }}
+      shell: bash
+      run: |
+        echo "🔨 Compiling metrics..."
+        
+        # Convert comma-separated template dirs to multiple -t flags
+        TEMPLATE_FLAGS=""
+        IFS=',' read -ra DIRS <<< "${{ inputs.template-dirs }}"
+        for dir in "${DIRS[@]}"; do
+          TEMPLATE_FLAGS="$TEMPLATE_FLAGS -t $dir"
+        done
+        
+        OUTPUT=$(better-dbt-metrics compile \
+          --input-dir ${{ inputs.metrics-dir }} \
+          --output-dir ${{ inputs.output-dir }} \
+          $TEMPLATE_FLAGS)
+          
+        echo "$OUTPUT"
+        
+        # Extract counts from output
+        METRICS_COUNT=$(echo "$OUTPUT" | grep -oP '(?<=Compiled )\d+(?= metrics)' || echo "0")
+        MODELS_COUNT=$(echo "$OUTPUT" | grep -oP '(?<=Generated )\d+(?= semantic models)' || echo "0")
+        
+        echo "metrics_count=$METRICS_COUNT" >> $GITHUB_OUTPUT
+        echo "models_count=$MODELS_COUNT" >> $GITHUB_OUTPUT
+        
+    - name: Upload compiled models
+      if: ${{ inputs.upload-artifacts == 'true' && inputs.validate-only == 'false' && steps.validate.outputs.passed == 'true' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: compiled-dbt-models
+        path: ${{ inputs.output-dir }}
+        
+    - name: Create PR comment
+      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          
+          const validation_passed = '${{ steps.validate.outputs.passed }}' === 'true';
+          const validate_only = '${{ inputs.validate-only }}' === 'true';
+          const metrics_count = '${{ steps.compile.outputs.metrics_count }}' || '0';
+          const models_count = '${{ steps.compile.outputs.models_count }}' || '0';
+          
+          let comment = '## 📊 Better-DBT-Metrics Report\n\n';
+          
+          if (validation_passed) {
+            comment += '✅ **Validation passed**\n\n';
+            
+            if (!validate_only) {
+              comment += '### Compilation Summary\n\n';
+              comment += `- **Metrics compiled**: ${metrics_count}\n`;
+              comment += `- **Semantic models generated**: ${models_count}\n`;
+              comment += `- **Output location**: \`${{ inputs.output-dir }}\`\n`;
+              
+              if ('${{ inputs.upload-artifacts }}' === 'true') {
+                comment += `- **Artifacts**: [Download compiled models](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n`;
+              }
+            }
+          } else {
+            comment += '❌ **Validation failed**\n\n';
+            comment += 'Please check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\n';
+          }
+          
+          comment += '\n---\n';
+          comment += '*Generated by [Better-DBT-Metrics](https://github.com/rdwburns/better-dbt-metrics)*';
+          
+          // Find and update existing comment or create new one
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const botComment = comments.find(comment => 
+            comment.user.type === 'Bot' && 
+            comment.body.includes('Better-DBT-Metrics Report')
+          );
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: comment
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+          }
+
+branding:
+  icon: 'layers'
+  color: 'blue'

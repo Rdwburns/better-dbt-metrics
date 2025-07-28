@@ -1,0 +1,159 @@
+# Example: Fill Nulls in Time Series Metrics
+# This example demonstrates how to handle gaps in time series data
+
+version: 2
+
+metrics:
+  # Fill with zero - common for revenue/count metrics
+  - name: daily_revenue
+    description: "Daily revenue with gaps filled with zeros"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+    fill_nulls_with: 0  # Missing days will show 0 revenue
+    
+  # Forward fill (previous value) - good for status/state metrics
+  - name: daily_active_subscriptions
+    description: "Active subscriptions carried forward when data is missing"
+    type: simple
+    source: fct_subscriptions
+    measure:
+      type: count_distinct
+      column: subscription_id
+      filters:
+        - "status = 'active'"
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+    fill_nulls_with: previous  # Carry forward last known value
+    
+  # Linear interpolation - good for continuous metrics
+  - name: hourly_temperature
+    description: "Temperature readings with linear interpolation for gaps"
+    type: simple
+    source: fct_sensor_readings
+    measure:
+      type: average
+      column: temperature_celsius
+    dimensions:
+      - name: date_hour
+        type: time
+        grain: hour
+      - name: sensor_id
+        type: categorical
+    fill_nulls_with: interpolate
+    config:
+      interpolation_method: linear  # Could also be 'cubic', 'nearest'
+      
+  # Custom fill value - useful for special indicators
+  - name: daily_inventory_level
+    description: "Inventory levels with -1 indicating no data"
+    type: simple
+    source: fct_inventory
+    measure:
+      type: last_value  # Take the last value of the day
+      column: quantity_on_hand
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+      - name: warehouse_id
+        type: categorical
+      - name: product_id
+        type: categorical
+    fill_nulls_with: -1  # -1 clearly indicates missing data vs actual 0
+    
+  # Conditional fill based on dimensions
+  - name: regional_daily_sales
+    description: "Sales with different fill strategies by region"
+    type: simple
+    source: fct_sales
+    measure:
+      type: sum
+      column: sale_amount
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+      - name: region
+        type: categorical
+    fill_nulls_with: 0  # Default fill strategy
+    config:
+      fill_nulls_rules:
+        # Different regions have different reporting patterns
+        - dimension: region
+          value: "APAC"
+          fill_with: previous  # APAC often has delayed reporting
+        - dimension: region
+          value: "EU"
+          fill_with: 0  # EU has complete daily reporting
+        - dimension: region
+          value: "LATAM"
+          fill_with: interpolate  # LATAM has sporadic reporting
+          
+  # Complex example: Combining fill strategies with window functions
+  - name: weekly_moving_average_sessions
+    description: "7-day moving average of sessions with smart null handling"
+    type: simple
+    source: fct_web_sessions
+    measure:
+      type: average
+      column: session_count
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+    fill_nulls_with: interpolate  # Interpolate before calculating moving average
+    config:
+      window_function: "AVG() OVER (ORDER BY date_day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)"
+      
+  # Fill nulls for ratio metrics
+  - name: daily_conversion_rate
+    description: "Conversion rate with intelligent null handling"
+    type: ratio
+    numerator:
+      source: fct_conversions
+      measure:
+        type: count
+        column: conversion_id
+      fill_nulls_with: 0  # No conversions = 0
+    denominator:
+      source: fct_visits
+      measure:
+        type: count
+        column: visit_id
+      fill_nulls_with: previous  # Carry forward visit count if missing
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+        
+  # Time-based fill strategies
+  - name: hourly_api_calls
+    description: "API calls with time-aware fill strategy"
+    type: simple
+    source: fct_api_logs
+    measure:
+      type: count
+      column: request_id
+    dimensions:
+      - name: date_hour
+        type: time
+        grain: hour
+    fill_nulls_with: 0
+    config:
+      # Different fill strategies for different time periods
+      fill_nulls_schedule:
+        - time_range: "00:00-06:00"  # Night hours
+          fill_with: 0  # Expect low/no traffic
+        - time_range: "06:00-22:00"  # Day hours
+          fill_with: interpolate  # Interpolate missing data
+        - time_range: "22:00-00:00"  # Evening
+          fill_with: previous  # Carry forward

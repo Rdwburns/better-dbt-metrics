@@ -1,0 +1,160 @@
+# Example: Primary/Foreign Key Relationships in Semantic Models
+# This example demonstrates how to define entity relationships for dbt's semantic layer
+
+version: 2
+
+# Define entities with their relationships
+entities:
+  # Primary entities
+  - name: customer
+    type: primary
+    column: customer_id
+    
+  - name: order
+    type: primary
+    column: order_id
+    relationships:
+      - type: many_to_one
+        to_entity: customer
+        foreign_key: customer_id
+        
+  - name: order_item
+    type: primary  
+    column: order_item_id
+    relationships:
+      - type: many_to_one
+        to_entity: order
+        foreign_key: order_id
+      - type: many_to_one
+        to_entity: product
+        foreign_key: product_id
+        
+  - name: product
+    type: primary
+    column: product_id
+    relationships:
+      - type: many_to_one
+        to_entity: category
+        foreign_key: category_id
+        
+  - name: category
+    type: primary
+    column: category_id
+
+# Metrics that use these entities
+metrics:
+  # Customer-level metrics
+  - name: customer_lifetime_value
+    description: "Total revenue per customer"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    entity: customer  # Primary entity for this metric
+    dimensions:
+      - name: customer_segment
+        type: categorical
+      - name: acquisition_channel
+        type: categorical
+        
+  # Order-level metrics with customer relationship
+  - name: average_order_value
+    description: "Average value per order"
+    type: simple
+    source: fct_orders
+    measure:
+      type: average
+      column: order_total
+    entity: order
+    # Related entities will be automatically derived from relationships
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+      - name: order_status
+        type: categorical
+        
+  # Product-level metrics with category relationship
+  - name: product_revenue
+    description: "Revenue by product"
+    type: simple
+    source: fct_order_items
+    measure:
+      type: sum
+      column: item_revenue
+    entity: order_item
+    # Can join to product and category through relationships
+    dimensions:
+      - name: product_name
+        type: categorical
+        source: dim_products  # From product entity
+      - name: category_name  
+        type: categorical
+        source: dim_categories  # From category entity through product
+        
+  # Cross-entity metrics
+  - name: repeat_purchase_rate
+    description: "Percentage of customers with multiple orders"
+    type: ratio
+    numerator:
+      source: fct_orders
+      measure:
+        type: count_distinct
+        column: customer_id
+        filters:
+          - "order_count > 1"
+      entity: customer
+    denominator:
+      source: fct_orders
+      measure:
+        type: count_distinct
+        column: customer_id
+      entity: customer
+      
+# Advanced: Entity sets for complex relationships
+entity_sets:
+  - name: customer_orders
+    description: "Customer and their orders"
+    primary_entity: customer
+    includes:
+      - entity: order
+        join_type: left
+      - entity: order_item
+        join_type: left
+        through: order  # Join path
+        
+  - name: product_hierarchy
+    description: "Products and their categories"
+    primary_entity: product
+    includes:
+      - entity: category
+        join_type: inner
+        
+# Semantic model configuration
+semantic_models:
+  - name: customer_revenue_model
+    description: "Customer revenue analysis"
+    source: fct_orders
+    entity_set: customer_orders  # Use predefined entity set
+    # Entities and relationships will be auto-generated
+    
+  - name: product_performance_model
+    description: "Product performance metrics"
+    source: fct_order_items
+    entities:
+      - name: order_item
+        type: primary
+        expr: order_item_id
+      - name: order
+        type: foreign
+        expr: order_id
+        relationship:
+          to_entity: order
+          type: many_to_one
+      - name: product
+        type: foreign
+        expr: product_id
+        relationship:
+          to_entity: product
+          type: many_to_one

@@ -1,0 +1,68 @@
+semantic_models:
+- description: 'Semantic model for '
+  dimensions:
+  - expr: DATE_TRUNC('day', {TIME_COLUMN})
+    label: Date
+    name: date_day
+    type: time
+    type_params:
+      time_granularity: day
+  - expr: DATE_TRUNC('week', {TIME_COLUMN})
+    label: Week
+    name: date_week
+    type: time
+    type_params:
+      time_granularity: week
+  - expr: DATE_TRUNC('month', {TIME_COLUMN})
+    label: Month
+    name: date_month
+    type: time
+    type_params:
+      time_granularity: month
+  - expr: DATE_TRUNC('quarter', {TIME_COLUMN})
+    label: Quarter
+    name: date_quarter
+    type: time
+    type_params:
+      time_granularity: quarter
+  - expr: DATE_TRUNC('year', {TIME_COLUMN})
+    label: Year
+    name: date_year
+    type: time
+    type_params:
+      time_granularity: year
+  - label: Customer ID
+    name: customer_id
+    type: categorical
+  - label: Customer Name
+    name: customer_name
+    type: categorical
+  - expr: segment
+    label: Customer Segment
+    name: customer_segment
+    type: categorical
+  - expr: COALESCE(tier, 'bronze')
+    label: Customer Tier
+    name: customer_tier
+    type: categorical
+  - expr: status
+    label: Customer Status
+    name: customer_status
+    type: categorical
+  - expr: acquisition_channel
+    label: Acquisition Channel
+    name: acquisition_channel
+    type: categorical
+  - label: Product Category
+    name: product_category
+    type: categorical
+  - label: Sales Channel
+    name: sales_channel
+    type: categorical
+  entities:
+  - expr: customer_id
+    name: customer_id
+    type: primary
+  measures: []
+  model: ref('')
+  name: sem_

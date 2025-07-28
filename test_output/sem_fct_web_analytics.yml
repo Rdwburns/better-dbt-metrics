@@ -1,0 +1,19 @@
+semantic_models:
+- description: Semantic model for fct_web_analytics
+  dimensions:
+  - name: visit_date
+    type: time
+    type_params:
+      time_granularity: day
+  - name: traffic_source
+    type: categorical
+  entities:
+  - expr: visitor_id
+    name: visitor_id
+    type: primary
+  measures:
+  - agg: count_distinct
+    expr: visitor_id
+    name: unique_visitors_measure
+  model: ref('fct_web_analytics')
+  name: sem_fct_web_analytics

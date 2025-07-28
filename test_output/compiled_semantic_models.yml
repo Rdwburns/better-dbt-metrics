@@ -1,0 +1,127 @@
+version: 2
+semantic_models:
+- name: sem_fct_orders
+  model: ref('fct_orders')
+  description: Semantic model for fct_orders
+  dimensions: []
+  measures:
+  - name: total_revenue_measure
+    agg: sum
+    expr: revenue_amount
+    agg_params:
+      where: order_status = 'completed'
+  - name: cumulative_revenue_measure
+    agg: sum
+    expr: revenue_amount
+  - name: median_order_value_measure
+    agg: median
+    expr: order_total
+  - name: revenue_stddev_measure
+    agg: stddev
+    expr: revenue_amount
+  entities:
+  - name: id
+    type: primary
+    expr: fct_orders_id
+- name: sem_
+  model: ref('')
+  description: 'Semantic model for '
+  dimensions: []
+  measures:
+  - name: refund_rate_numerator
+    agg: sum
+    expr: refund_amount
+  - name: refund_rate_denominator
+    agg: sum
+    expr: revenue_amount
+    agg_params:
+      where: order_status = 'completed'
+  entities:
+  - name: id
+    type: primary
+    expr: _id
+- name: sem_fct_api_calls
+  model: ref('fct_api_calls')
+  description: Semantic model for fct_api_calls
+  dimensions: []
+  measures:
+  - name: p95_response_time_measure
+    agg: percentile
+    expr: response_time_ms
+    agg_params:
+      percentile: 0.95
+  entities:
+  - name: id
+    type: primary
+    expr: fct_api_calls_id
+- name: sem_fct_user_activity
+  model: ref('fct_user_activity')
+  description: Semantic model for fct_user_activity
+  dimensions: []
+  measures:
+  - name: active_users_measure
+    agg: count_distinct
+    expr: user_id
+  entities:
+  - name: id
+    type: primary
+    expr: fct_user_activity_id
+metrics:
+- name: total_revenue
+  description: Simple sum metric
+  type: simple
+  label: Total Revenue
+  type_params:
+    measure: total_revenue_measure
+- name: refund_rate
+  description: Ratio of refunded to total revenue
+  type: ratio
+  label: Refund Rate
+  type_params:
+    numerator:
+      name: refund_rate_numerator
+      filter: null
+    denominator:
+      name: refund_rate_denominator
+      filter: null
+- name: revenue_per_customer
+  description: Average revenue per customer
+  type: derived
+  label: Revenue Per Customer
+- name: cumulative_revenue
+  description: Running total of revenue
+  type: cumulative
+  label: Cumulative Revenue
+  type_params:
+    measure: cumulative_revenue_measure
+    cumulative_type_params:
+      window: unbounded
+      grain_to_date: month
+- name: purchase_conversion_rate
+  description: Conversion from visit to purchase
+  type: conversion
+  label: Purchase Conversion Rate
+- name: median_order_value
+  description: Median order value
+  type: simple
+  label: Median Order Value
+  type_params:
+    measure: median_order_value_measure
+- name: p95_response_time
+  description: 95th percentile response time
+  type: simple
+  label: P95 Response Time
+  type_params:
+    measure: p95_response_time_measure
+- name: revenue_stddev
+  description: Standard deviation of daily revenue
+  type: simple
+  label: Revenue Stddev
+  type_params:
+    measure: revenue_stddev_measure
+- name: active_users
+  description: Count of active users
+  type: simple
+  label: Active Users
+  type_params:
+    measure: active_users_measure

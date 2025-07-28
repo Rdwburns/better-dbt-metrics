@@ -1,0 +1,147 @@
+# Example: All dbt Metric Types
+version: 2
+
+# This example demonstrates all supported dbt metric types
+
+metrics:
+  # 1. Simple Metric
+  - name: total_revenue
+    description: "Simple sum metric"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: revenue_amount
+      filters:
+        - "order_status = 'completed'"
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+      - name: customer_segment
+        type: categorical
+
+  # 2. Ratio Metric
+  - name: refund_rate
+    description: "Ratio of refunded to total revenue"
+    type: ratio
+    numerator:
+      source: fct_refunds
+      measure:
+        type: sum
+        column: refund_amount
+    denominator:
+      source: fct_orders
+      measure:
+        type: sum
+        column: revenue_amount
+        filters:
+          - "order_status = 'completed'"
+    dimensions:
+      - name: date_month
+        type: time
+        grain: month
+
+  # 3. Derived Metric
+  - name: revenue_per_customer
+    description: "Average revenue per customer"
+    type: derived
+    expression: "metric('total_revenue') / metric('unique_customers')"
+    dimensions:
+      - name: date_month
+        type: time
+        grain: month
+      - name: region
+        type: categorical
+
+  # 4. Cumulative Metric
+  - name: cumulative_revenue
+    description: "Running total of revenue"
+    type: cumulative
+    source: fct_orders
+    measure:
+      type: sum
+      column: revenue_amount
+    window: unbounded
+    grain_to_date: month
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+
+  # 5. Conversion Metric
+  - name: purchase_conversion_rate
+    description: "Conversion from visit to purchase"
+    type: conversion
+    base_measure:
+      source: fct_events
+      measure:
+        type: count_distinct
+        column: user_id
+        filters:
+          - "event_type = 'page_view'"
+    conversion_measure:
+      source: fct_events
+      measure:
+        type: count_distinct
+        column: user_id
+        filters:
+          - "event_type = 'purchase'"
+    entity: user_id
+    window: 7 days
+    dimensions:
+      - name: landing_page
+        type: categorical
+
+  # Advanced Measure Types
+  - name: median_order_value
+    description: "Median order value"
+    type: simple
+    source: fct_orders
+    measure:
+      type: median
+      column: order_total
+    dimensions:
+      - name: product_category
+        type: categorical
+
+  - name: p95_response_time
+    description: "95th percentile response time"
+    type: simple
+    source: fct_api_calls
+    measure:
+      type: percentile
+      column: response_time_ms
+      percentile: 0.95
+    dimensions:
+      - name: endpoint
+        type: categorical
+      - name: hour_of_day
+        type: time
+        grain: hour
+
+  - name: revenue_stddev
+    description: "Standard deviation of daily revenue"
+    type: simple
+    source: fct_orders
+    measure:
+      type: stddev
+      column: revenue_amount
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+
+  # Entity example
+  - name: active_users
+    description: "Count of active users"
+    type: simple
+    source: fct_user_activity
+    entity: user_id  # Explicit entity definition
+    measure:
+      type: count_distinct
+      column: user_id
+    dimensions:
+      - name: activity_date
+        type: time
+        grain: day

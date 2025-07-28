@@ -1,0 +1,168 @@
+# Example: Metric Time Dimension
+# The metric_time dimension provides a standardized time dimension across all metrics
+
+version: 2
+
+# Define time spine for metric_time
+time_spine:
+  default:
+    model: ref('dim_date')
+    columns:
+      date_day: date_day
+      date_week: date_week
+      date_month: date_month
+      date_quarter: date_quarter
+      date_year: date_year
+
+metrics:
+  # Basic metric with metric_time
+  - name: daily_orders
+    description: "Orders using metric_time dimension"
+    type: simple
+    source: fct_orders
+    measure:
+      type: count
+      column: order_id
+    dimensions:
+      - name: metric_time  # Special dimension
+        type: time
+        grain: day
+        expr: order_date  # Maps to this column
+        
+  # Revenue with metric_time at different grains
+  - name: revenue_by_period
+    description: "Revenue aggregated by metric_time"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: metric_time
+        type: time
+        grain: month  # Can specify different grains
+        expr: order_date
+      - name: region
+        type: categorical
+        
+  # Multiple metrics sharing metric_time
+  - name: customer_acquisition
+    type: simple
+    source: fct_customers
+    measure:
+      type: count
+      column: customer_id
+      filters:
+        - "is_new = true"
+    dimensions:
+      - name: metric_time
+        type: time
+        grain: week
+        expr: signup_date  # Different source column
+        
+  - name: support_tickets
+    type: simple
+    source: fct_support
+    measure:
+      type: count
+      column: ticket_id
+    dimensions:
+      - name: metric_time
+        type: time
+        grain: day
+        expr: created_at  # Yet another source column
+        
+  # Ratio metric with metric_time
+  - name: conversion_rate
+    type: ratio
+    numerator:
+      source: fct_conversions
+      measure:
+        type: count
+        column: conversion_id
+      dimensions:
+        - name: metric_time
+          type: time
+          grain: day
+          expr: conversion_date
+    denominator:
+      source: fct_visits
+      measure:
+        type: count
+        column: visit_id
+      dimensions:
+        - name: metric_time
+          type: time
+          grain: day
+          expr: visit_date
+          
+  # Cumulative metric with metric_time
+  - name: cumulative_revenue
+    type: cumulative
+    measure:
+      source: fct_orders
+      type: sum
+      column: order_total
+    dimensions:
+      - name: metric_time
+        type: time
+        grain: month
+        expr: order_date
+    grain_to_date: month
+    window: unbounded
+    
+  # Advanced: Multiple time dimensions including metric_time
+  - name: order_lifecycle
+    description: "Orders with both metric_time and specific dates"
+    type: simple
+    source: fct_orders
+    measure:
+      type: count
+      column: order_id
+    dimensions:
+      - name: metric_time  # For overall time series
+        type: time
+        grain: day
+        expr: order_date
+      - name: ship_date  # Specific business date
+        type: time
+        grain: day
+      - name: delivery_date  # Another specific date
+        type: time
+        grain: day
+        
+# Semantic model configuration for metric_time
+semantic_models:
+  - name: unified_metrics
+    description: "Unified semantic model with metric_time"
+    model: ref('fct_unified')
+    primary_time_dimension: metric_time  # Designate as primary
+    dimensions:
+      - name: metric_time
+        type: time
+        type_params:
+          time_granularity: day
+        expr: COALESCE(order_date, signup_date, event_date)  # Unified expression
+      - name: metric_time_week
+        type: time
+        type_params:
+          time_granularity: week
+        expr: DATE_TRUNC('week', COALESCE(order_date, signup_date, event_date))
+      - name: metric_time_month
+        type: time
+        type_params:
+          time_granularity: month
+        expr: DATE_TRUNC('month', COALESCE(order_date, signup_date, event_date))
+        
+# Configuration for metric_time behavior
+config:
+  metric_time:
+    auto_create: true  # Automatically create metric_time dimensions
+    default_grain: day
+    default_expr_pattern: "{source_table}_date"  # Pattern for finding date columns
+    grains_to_create:  # Which grain dimensions to auto-create
+      - day
+      - week
+      - month
+      - quarter
+      - year

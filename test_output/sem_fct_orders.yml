@@ -1,0 +1,123 @@
+semantic_models:
+- description: Semantic model for fct_orders
+  dimensions:
+  - name: date_day
+    type: time
+    type_params:
+      time_granularity: day
+  - name: date_month
+    type: time
+    type_params:
+      time_granularity: month
+  - name: customer_segment
+    type: categorical
+  - name: sales_channel
+    type: categorical
+  - name: product_category
+    type: categorical
+  - name: order_date
+    type: time
+    type_params:
+      time_granularity: day
+  - expr: DATE_TRUNC('week', {TIME_COLUMN})
+    label: Week
+    name: date_week
+    type: time
+    type_params:
+      time_granularity: week
+  - expr: DATE_TRUNC('quarter', {TIME_COLUMN})
+    label: Quarter
+    name: date_quarter
+    type: time
+    type_params:
+      time_granularity: quarter
+  - expr: DATE_TRUNC('year', {TIME_COLUMN})
+    label: Year
+    name: date_year
+    type: time
+    type_params:
+      time_granularity: year
+  - name: customer_type
+    type: categorical
+  - label: Customer ID
+    name: customer_id
+    type: categorical
+  - label: Customer Name
+    name: customer_name
+    type: categorical
+  - expr: COALESCE(tier, 'bronze')
+    label: Customer Tier
+    name: customer_tier
+    type: categorical
+  - expr: status
+    label: Customer Status
+    name: customer_status
+    type: categorical
+  - expr: acquisition_channel
+    label: Acquisition Channel
+    name: acquisition_channel
+    type: categorical
+  - label: Sales Channel
+    name: channel
+    type: categorical
+  entities:
+  - expr: customer_id
+    name: customer_id
+    type: primary
+  measures:
+  - agg: sum
+    expr: order_total
+    name: daily_revenue_measure
+  - agg: average
+    expr: order_total
+    name: average_order_value_measure
+  - agg: stddev
+    expr: order_total
+    name: order_value_stddev_measure
+  - agg: count
+    expr: order_id
+    name: high_value_orders_measure
+  - agg: sum
+    expr: order_total
+    name: premium_orders_measure
+  - agg: count
+    expr: order_id
+    name: outlier_orders_measure
+  - agg: sum
+    agg_params:
+      metric_refs:
+      - monthly_target
+      where: order_total > metric('monthly_target') AND order_status = 'completed'
+    expr: order_total
+    name: revenue_above_target_measure
+  - agg: count
+    expr: order_id
+    name: vip_customer_orders_measure
+  - agg: percentile
+    agg_params:
+      percentile: 0.75
+    expr: order_total
+    name: order_value_p75_measure
+  - agg: sum
+    expr: order_total
+    name: total_revenue_measure
+  - agg: sum
+    expr: revenue_amount
+    name: cumulative_revenue_measure
+  - agg: median
+    expr: order_total
+    name: median_order_value_measure
+  - agg: stddev
+    expr: revenue_amount
+    name: revenue_stddev_measure
+  - agg: sum
+    expr: product_amount
+    name: product_revenue_measure
+  - agg: count
+    expr: order_id
+    name: total_orders_measure
+  - agg: sum
+    expr: order_total
+    name: running_total_revenue_measure
+  model: ref('fct_orders')
+  name: sem_fct_orders

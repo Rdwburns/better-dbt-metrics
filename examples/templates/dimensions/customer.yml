@@ -1,0 +1,113 @@
+# Standard customer dimension groups
+version: 2
+
+dimension_groups:
+  basic:
+    description: "Basic customer attributes"
+    dimensions:
+      - name: customer_id
+        type: categorical
+        label: "Customer ID"
+      
+      - name: customer_name
+        type: categorical
+        label: "Customer Name"
+  
+  segment:
+    description: "Customer segmentation dimensions"
+    extends: [basic]
+    dimensions:
+      - name: customer_segment
+        type: categorical
+        source: segment
+        label: "Customer Segment"
+      
+      - name: customer_tier
+        type: categorical
+        source: tier
+        expr: "COALESCE(tier, 'bronze')"
+        label: "Customer Tier"
+      
+      - name: customer_status
+        type: categorical
+        source: status
+        label: "Customer Status"
+      
+      - name: acquisition_channel
+        type: categorical
+        source: acquisition_channel
+        label: "Acquisition Channel"
+  
+  demographics:
+    description: "Customer demographic dimensions"
+    dimensions:
+      - name: age_group
+        type: categorical
+        expr: |
+          CASE 
+            WHEN age < 18 THEN 'Under 18'
+            WHEN age BETWEEN 18 AND 24 THEN '18-24'
+            WHEN age BETWEEN 25 AND 34 THEN '25-34'
+            WHEN age BETWEEN 35 AND 44 THEN '35-44'
+            WHEN age BETWEEN 45 AND 54 THEN '45-54'
+            WHEN age BETWEEN 55 AND 64 THEN '55-64'
+            ELSE '65+'
+          END
+        label: "Age Group"
+      
+      - name: gender
+        type: categorical
+        label: "Gender"
+      
+      - name: income_bracket
+        type: categorical
+        expr: |
+          CASE 
+            WHEN annual_income < 30000 THEN '< $30k'
+            WHEN annual_income < 50000 THEN '$30k-$50k'
+            WHEN annual_income < 75000 THEN '$50k-$75k'
+            WHEN annual_income < 100000 THEN '$75k-$100k'
+            WHEN annual_income < 150000 THEN '$100k-$150k'
+            ELSE '$150k+'
+          END
+        label: "Income Bracket"
+  
+  value:
+    description: "Customer value dimensions"
+    dimensions:
+      - name: lifetime_value_tier
+        type: categorical
+        expr: |
+          CASE 
+            WHEN lifetime_value < 100 THEN 'Low'
+            WHEN lifetime_value < 1000 THEN 'Medium'
+            WHEN lifetime_value < 10000 THEN 'High'
+            ELSE 'VIP'
+          END
+        label: "LTV Tier"
+      
+      - name: purchase_frequency
+        type: categorical
+        expr: |
+          CASE 
+            WHEN days_between_purchases < 7 THEN 'Weekly'
+            WHEN days_between_purchases < 30 THEN 'Monthly'
+            WHEN days_between_purchases < 90 THEN 'Quarterly'
+            ELSE 'Infrequent'
+          END
+        label: "Purchase Frequency"
+      
+      - name: recency_segment
+        type: categorical
+        expr: |
+          CASE 
+            WHEN days_since_last_purchase < 30 THEN 'Active'
+            WHEN days_since_last_purchase < 90 THEN 'At Risk'
+            WHEN days_since_last_purchase < 180 THEN 'Dormant'
+            ELSE 'Lost'
+          END
+        label: "Recency Segment"
+  
+  all:
+    description: "All customer dimensions"
+    extends: [segment, demographics, value]

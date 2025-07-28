@@ -1,0 +1,12 @@
+# Core dependencies
+click>=8.0.0
+pyyaml>=6.0
+jinja2>=3.0.0
+jsonschema>=4.0.0
+
+# Development dependencies (optional)
+# pytest>=7.0.0
+# black>=22.0.0
+# flake8>=4.0.0
+# mypy>=0.950
+# pytest-cov>=3.0.0

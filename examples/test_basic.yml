@@ -1,0 +1,53 @@
+# Basic example without imports or references
+version: 2
+
+dimension_groups:
+  standard_dimensions:
+    description: "Standard dimensions for analysis"
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+      - name: customer_segment
+        type: categorical
+      - name: product_category
+        type: categorical
+
+metrics:
+  # Simple metric
+  - name: total_revenue
+    description: "Total revenue from all orders"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    dimension_groups: [standard_dimensions]
+    
+  # Ratio metric
+  - name: conversion_rate
+    description: "Conversion rate from visitors to customers"
+    type: ratio
+    numerator:
+      source: fct_conversions
+      measure:
+        type: count_distinct
+        column: visitor_id
+    denominator:
+      source: fct_visits
+      measure:
+        type: count_distinct
+        column: visitor_id
+    dimensions:
+      - name: traffic_source
+        type: categorical
+        
+  # Derived metric
+  - name: average_order_value
+    description: "Average order value"
+    type: derived
+    expression: "metric('total_revenue') / metric('order_count')"
+    dimensions:
+      - name: date_month
+        type: time
+        grain: month

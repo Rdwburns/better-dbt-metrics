@@ -1,0 +1,72 @@
+# Example: Revenue Metrics with Import and Template Features
+version: 2
+
+# Import reusable components
+imports:
+  - ../templates/dimensions/temporal.yml as time
+  - ../templates/dimensions/customer.yml as customer
+  - ../templates/metrics/revenue.yml as revenue_templates
+
+# Define custom dimension groups for this file
+dimension_groups:
+  revenue_analysis:
+    description: "Standard dimensions for revenue analysis"
+    dimensions:
+      - $ref: time.daily
+      - $ref: customer.segment
+      - name: product_category
+        type: categorical
+        label: "Product Category"
+      - name: sales_channel
+        type: categorical
+        label: "Sales Channel"
+
+metrics:
+  # Simple revenue metric using template
+  - name: total_revenue
+    description: "Total revenue from all completed orders"
+    template: revenue_templates.revenue_base
+    parameters:
+      SOURCE_TABLE: fct_orders
+      AMOUNT_COLUMN: order_total
+    dimension_groups: [revenue_analysis]
+    meta:
+      owner: "finance_team"
+      tier: "gold"
+  
+  # MRR using template
+  - name: monthly_recurring_revenue
+    description: "Monthly recurring revenue from active subscriptions"
+    template: revenue_templates.mrr_template
+    parameters:
+      SUBSCRIPTION_TABLE: fct_subscriptions
+      MRR_COLUMN: monthly_amount
+    dimensions:
+      - name: date_month
+        type: time
+        grain: month
+        label: "Month"
+      - $ref: customer.segment
+  
+  # Custom metric without template
+  - name: average_order_value
+    description: "Average revenue per order"
+    source: fct_orders
+    measure:
+      type: average
+      column: order_total
+      filters:
+        - "order_status = 'completed'"
+    dimensions:
+      - $ref: time.daily
+      - name: customer_type
+        type: categorical
+  
+  # Basic sum metric
+  - name: product_revenue
+    description: "Revenue from product sales"
+    source: fct_orders
+    measure:
+      type: sum
+      column: product_amount
+    dimension_groups: [revenue_analysis]

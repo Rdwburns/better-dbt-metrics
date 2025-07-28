@@ -1,0 +1,118 @@
+semantic_models:
+- description: Semantic model for unknown
+  dimensions:
+  - name: date_day
+    type: time
+    type_params:
+      time_granularity: day
+  - name: traffic_source
+    type: categorical
+  - name: date_month
+    type: time
+    type_params:
+      time_granularity: month
+  - name: region
+    type: categorical
+  - name: landing_page
+    type: categorical
+  - expr: DATE_TRUNC('week', {TIME_COLUMN})
+    label: Week
+    name: date_week
+    type: time
+    type_params:
+      time_granularity: week
+  - expr: DATE_TRUNC('quarter', {TIME_COLUMN})
+    label: Quarter
+    name: date_quarter
+    type: time
+    type_params:
+      time_granularity: quarter
+  - expr: DATE_TRUNC('year', {TIME_COLUMN})
+    label: Year
+    name: date_year
+    type: time
+    type_params:
+      time_granularity: year
+  - label: Customer ID
+    name: customer_id
+    type: categorical
+  - label: Customer Name
+    name: customer_name
+    type: categorical
+  - expr: segment
+    label: Customer Segment
+    name: customer_segment
+    type: categorical
+  - expr: COALESCE(tier, 'bronze')
+    label: Customer Tier
+    name: customer_tier
+    type: categorical
+  - expr: status
+    label: Customer Status
+    name: customer_status
+    type: categorical
+  - expr: acquisition_channel
+    label: Acquisition Channel
+    name: acquisition_channel
+    type: categorical
+  - label: Product Category
+    name: product_category
+    type: categorical
+  - label: Sales Channel
+    name: sales_channel
+    type: categorical
+  - label: Sales Channel
+    name: channel
+    type: categorical
+  - name: signup_month
+    type: time
+    type_params:
+      time_granularity: month
+  - name: plan_type
+    type: categorical
+  entities:
+  - expr: user_id
+    name: user_id
+    type: primary
+  - expr: account_id
+    name: account_id
+    type: primary
+  measures:
+  - agg: count
+    expr: conversion_id
+    name: daily_conversion_rate_numerator
+  - agg: count
+    expr: visit_id
+    name: daily_conversion_rate_denominator
+  - agg: count_distinct
+    expr: visitor_id
+    name: conversion_rate_numerator
+  - agg: count_distinct
+    expr: visitor_id
+    name: conversion_rate_denominator
+  - agg: sum
+    expr: refund_amount
+    name: refund_rate_numerator
+  - agg: sum
+    agg_params:
+      where: order_status = 'completed'
+    expr: revenue_amount
+    name: refund_rate_denominator
+  - agg: count
+    agg_params:
+      where: status = 'abandoned'
+    expr: cart_id
+    name: cart_abandonment_rate_numerator
+  - agg: count
+    expr: cart_id
+    name: cart_abandonment_rate_denominator
+  - agg: count_distinct
+    agg_params:
+      where: total_orders > 1
+    expr: customer_id
+    name: repeat_customer_rate_numerator
+  - agg: count_distinct
+    expr: customer_id
+    name: repeat_customer_rate_denominator
+  model: ref('unknown')
+  name: sem_unknown

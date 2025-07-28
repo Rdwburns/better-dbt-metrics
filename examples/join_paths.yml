@@ -1,0 +1,222 @@
+# Example: Join Path Configuration
+# Define explicit join paths for complex data models
+
+version: 2
+
+# Define join paths between tables
+join_paths:
+  # Direct joins
+  - from: fct_orders
+    to: dim_customers
+    join_type: inner
+    join_keys:
+      - from_column: customer_id
+        to_column: customer_id
+        
+  - from: fct_orders
+    to: dim_products
+    join_type: left
+    join_keys:
+      - from_column: product_id
+        to_column: product_id
+        
+  # Multi-hop join path
+  - from: fct_order_items
+    to: dim_customers
+    through: fct_orders  # Join through intermediate table
+    join_path:
+      - from: fct_order_items
+        to: fct_orders
+        join_keys:
+          - from_column: order_id
+            to_column: order_id
+      - from: fct_orders
+        to: dim_customers
+        join_keys:
+          - from_column: customer_id
+            to_column: customer_id
+            
+  # Complex join with conditions
+  - from: fct_transactions
+    to: dim_accounts
+    join_type: inner
+    join_keys:
+      - from_column: account_id
+        to_column: account_id
+    join_conditions:
+      - "dim_accounts.is_active = true"
+      - "dim_accounts.account_type IN ('checking', 'savings')"
+      
+  # Bridge table join
+  - from: dim_products
+    to: dim_categories
+    through: bridge_product_categories
+    join_path:
+      - from: dim_products
+        to: bridge_product_categories
+        join_keys:
+          - from_column: product_id
+            to_column: product_id
+      - from: bridge_product_categories
+        to: dim_categories
+        join_keys:
+          - from_column: category_id
+            to_column: category_id
+
+# Metrics using join paths
+metrics:
+  # Simple metric with automatic join
+  - name: revenue_by_customer_segment
+    description: "Revenue grouped by customer segment"
+    type: simple
+    source: fct_orders  # Primary table
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: customer_segment
+        source: dim_customers  # Will use defined join path
+        column: segment
+      - name: customer_lifetime_value_tier
+        source: dim_customers
+        column: ltv_tier
+        
+  # Metric requiring multi-hop join
+  - name: items_by_customer_region
+    description: "Order items grouped by customer region"
+    type: simple
+    source: fct_order_items
+    measure:
+      type: count
+      column: order_item_id
+    dimensions:
+      - name: customer_region
+        source: dim_customers  # Uses multi-hop join through fct_orders
+        column: region
+      - name: product_category
+        source: dim_products
+        column: category
+        
+  # Metric with bridge table
+  - name: revenue_by_category_hierarchy
+    description: "Revenue across category hierarchy"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: product_name
+        source: dim_products
+        column: product_name
+      - name: category_name
+        source: dim_categories  # Uses bridge table
+        column: category_name
+      - name: parent_category
+        source: dim_categories
+        column: parent_category_name
+
+# Semantic model with explicit join configuration
+semantic_models:
+  - name: sales_analysis
+    description: "Comprehensive sales analysis model"
+    model: ref('fct_orders')
+    
+    # Define joins for this semantic model
+    joins:
+      - name: customer
+        sql_on: "${fct_orders}.customer_id = ${customer}.customer_id"
+        type: left
+        
+      - name: product
+        sql_on: "${fct_orders}.product_id = ${product}.product_id"
+        type: left
+        
+      - name: date_dimension
+        sql_on: "${fct_orders}.order_date = ${date_dimension}.date_day"
+        type: inner
+        
+    # Dimensions from joined tables
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        expr: order_date
+        
+      - name: customer_segment
+        type: categorical
+        expr: ${customer}.segment
+        
+      - name: product_category
+        type: categorical
+        expr: ${product}.category
+        
+      - name: is_weekend
+        type: categorical
+        expr: ${date_dimension}.is_weekend
+
+# Advanced: Join path aliases for reuse
+join_path_aliases:
+  customer_full:
+    description: "Full customer information join"
+    paths:
+      - from: fct_orders
+        to: dim_customers
+        join_type: left
+        join_keys:
+          - from_column: customer_id
+            to_column: customer_id
+      - from: dim_customers
+        to: dim_customer_segments
+        join_type: left
+        join_keys:
+          - from_column: segment_id
+            to_column: segment_id
+      - from: dim_customers
+        to: dim_customer_demographics
+        join_type: left
+        join_keys:
+          - from_column: customer_id
+            to_column: customer_id
+            
+  product_hierarchy:
+    description: "Complete product hierarchy"
+    paths:
+      - from: fct_orders
+        to: dim_products
+        join_type: inner
+        join_keys:
+          - from_column: product_id
+            to_column: product_id
+      - from: dim_products
+        to: bridge_product_categories
+        join_type: inner
+        join_keys:
+          - from_column: product_id
+            to_column: product_id
+      - from: bridge_product_categories
+        to: dim_categories
+        join_type: inner
+        join_keys:
+          - from_column: category_id
+            to_column: category_id
+
+# Use join path aliases in metrics
+metrics:
+  - name: comprehensive_customer_analysis
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    join_paths: [customer_full]  # Use predefined join path
+    dimensions:
+      - name: customer_segment
+        source: dim_customer_segments
+        column: segment_name
+      - name: customer_age_group
+        source: dim_customer_demographics
+        column: age_group
+      - name: customer_income_bracket
+        source: dim_customer_demographics
+        column: income_bracket

@@ -1,0 +1,19 @@
+semantic_models:
+- description: Semantic model for fct_sensor_readings
+  dimensions:
+  - name: date_hour
+    type: time
+    type_params:
+      time_granularity: hour
+  - name: sensor_id
+    type: categorical
+  entities:
+  - expr: fct_sensor_readings_id
+    name: id
+    type: primary
+  measures:
+  - agg: average
+    expr: temperature_celsius
+    name: hourly_temperature_measure
+  model: ref('fct_sensor_readings')
+  name: sem_fct_sensor_readings

@@ -1,0 +1,28 @@
+metrics:
+- description: Total revenue from all completed orders
+  label: Total Revenue
+  meta:
+    owner: finance_team
+    tier: gold
+  name: total_revenue
+  type: simple
+  type_params:
+    measure: total_revenue_measure
+- description: Monthly recurring revenue from active subscriptions
+  label: Monthly Recurring Revenue
+  name: monthly_recurring_revenue
+  type: simple
+  type_params:
+    measure: monthly_recurring_revenue_measure
+- description: Average revenue per order
+  label: Average Order Value
+  name: average_order_value
+  type: simple
+  type_params:
+    measure: average_order_value_measure
+- description: Revenue from product sales
+  label: Product Revenue
+  name: product_revenue
+  type: simple
+  type_params:
+    measure: product_revenue_measure

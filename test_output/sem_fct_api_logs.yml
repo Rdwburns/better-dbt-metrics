@@ -1,0 +1,17 @@
+semantic_models:
+- description: Semantic model for fct_api_logs
+  dimensions:
+  - name: date_hour
+    type: time
+    type_params:
+      time_granularity: hour
+  entities:
+  - expr: fct_api_logs_id
+    name: id
+    type: primary
+  measures:
+  - agg: count
+    expr: request_id
+    name: hourly_api_calls_measure
+  model: ref('fct_api_logs')
+  name: sem_fct_api_logs

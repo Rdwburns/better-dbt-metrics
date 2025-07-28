@@ -1,0 +1,1209 @@
+"""
+Core Compiler for Better-DBT-Metrics
+Compiles better-dbt-metrics YAML to dbt semantic models
+"""
+
+import yaml
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Set, Tuple
+from dataclasses import dataclass, field
+from copy import deepcopy
+
+from core.parser import BetterDBTParser
+from features.templates import TemplateLibrary
+from features.dimension_groups import DimensionGroupManager
+
+
+@dataclass
+class CompilerConfig:
+    """Configuration for the compiler"""
+    input_dir: str = "metrics/"
+    output_dir: str = "models/semantic/"
+    template_dirs: List[str] = field(default_factory=lambda: ["templates/"])
+    dimension_group_dirs: List[str] = field(default_factory=lambda: ["templates/dimensions/"])
+    validate: bool = True
+    split_files: bool = True
+    environment: str = "dev"
+    auto_variants: bool = True
+    generate_tests: bool = True
+    
+
+class BetterDBTCompiler:
+    """
+    Main compiler that orchestrates the compilation process
+    """
+    
+    def __init__(self, config: CompilerConfig):
+        self.config = config
+        self.parser = BetterDBTParser(base_dir=".")
+        self.templates = TemplateLibrary(config.template_dirs)
+        self.dimension_groups = DimensionGroupManager()
+        
+        # Track compilation state
+        self.compiled_metrics: List[Dict[str, Any]] = []
+        self.semantic_models: List[Dict[str, Any]] = []
+        self.metrics_by_source: Dict[str, List[Dict]] = {}
+        self.entities: Dict[str, Dict[str, Any]] = {}  # Store entity definitions
+        self.entity_sets: Dict[str, Dict[str, Any]] = {}  # Store entity set definitions
+        self.time_spines: Dict[str, Dict[str, Any]] = {}  # Store time spine configurations
+        self.join_paths: List[Dict[str, Any]] = []  # Store join path definitions
+        self.join_path_aliases: Dict[str, Dict[str, Any]] = {}  # Store join path aliases
+        self.offset_patterns: Dict[str, List[Dict[str, Any]]] = {}  # Store offset window patterns
+        
+    def compile_directory(self, input_dir: Optional[str] = None) -> Dict[str, Any]:
+        """Compile all metrics files in a directory"""
+        input_path = Path(input_dir or self.config.input_dir)
+        
+        if not input_path.exists():
+            raise ValueError(f"Input directory not found: {input_path}")
+            
+        # Load dimension groups first
+        self._load_dimension_groups()
+        
+        # Find and compile all metrics files
+        results = {
+            'files_processed': 0,
+            'metrics_compiled': 0,
+            'models_generated': 0,
+            'errors': []
+        }
+        
+        for yaml_file in input_path.rglob("*.yml"):
+            # Skip non-metrics files
+            if yaml_file.name.startswith('_'):
+                continue
+                
+            results['files_processed'] += 1
+            try:
+                self.compile_file(yaml_file)
+            except Exception as e:
+                results['errors'].append({
+                    'file': str(yaml_file),
+                    'error': str(e)
+                })
+                
+        # Generate output
+        output_data = self._generate_output()
+        results['metrics_compiled'] = len(output_data.get('metrics', []))
+        results['models_generated'] = len(output_data.get('semantic_models', []))
+        
+        # Write output files
+        if self.config.split_files:
+            self._write_split_output(output_data)
+        else:
+            self._write_single_output(output_data)
+            
+        return results
+        
+    def compile_file(self, file_path: Path) -> Dict[str, Any]:
+        """Compile a single metrics file"""
+        # Parse file with imports and references
+        parsed_data = self.parser.parse_file(str(file_path))
+        
+        # Validate version
+        if parsed_data.get('version') not in [1, 2]:
+            raise ValueError(f"Unsupported version: {parsed_data.get('version')}")
+            
+        # Register dimension groups from imported files first
+        self._register_imported_dimension_groups()
+        
+        # Register templates from imported files
+        self._register_imported_templates()
+            
+        # Register dimension groups from this file
+        if 'dimension_groups' in parsed_data:
+            for name, group_def in parsed_data['dimension_groups'].items():
+                # Resolve any references in the dimension group
+                resolved_group = self._resolve_references_in_group(group_def)
+                self.dimension_groups.register_group(name, resolved_group)
+                
+        # Register entities if defined
+        if 'entities' in parsed_data:
+            for entity in parsed_data['entities']:
+                self.entities[entity['name']] = entity
+                
+        # Register entity sets if defined
+        if 'entity_sets' in parsed_data:
+            for entity_set in parsed_data['entity_sets']:
+                self.entity_sets[entity_set['name']] = entity_set
+                
+        # Register time spines if defined
+        if 'time_spine' in parsed_data:
+            for name, spine_config in parsed_data['time_spine'].items():
+                self.time_spines[name] = spine_config
+                
+        # Register join paths if defined
+        if 'join_paths' in parsed_data:
+            self.join_paths.extend(parsed_data['join_paths'])
+            
+        # Register join path aliases if defined
+        if 'join_path_aliases' in parsed_data:
+            for name, alias_def in parsed_data['join_path_aliases'].items():
+                self.join_path_aliases[name] = alias_def
+                
+        # Register offset patterns if defined
+        if 'offset_window_config' in parsed_data:
+            config = parsed_data['offset_window_config']
+            if 'offset_patterns' in config:
+                for name, pattern_def in config['offset_patterns'].items():
+                    self.offset_patterns[name] = pattern_def
+                    
+        # Process metrics
+        metrics = parsed_data.get('metrics', [])
+        
+        for metric in metrics:
+            compiled_metric = self._compile_metric(metric)
+            self.compiled_metrics.append(compiled_metric)
+            
+            # Group by source for semantic model generation
+            source = compiled_metric.get('source', 'unknown')
+            if source not in self.metrics_by_source:
+                self.metrics_by_source[source] = []
+            self.metrics_by_source[source].append(compiled_metric)
+            
+            # Generate auto-variants after the main metric is added
+            if self.config.auto_variants and 'auto_variants' in compiled_metric:
+                self._generate_auto_variants(compiled_metric)
+            
+        return parsed_data
+        
+    def _load_dimension_groups(self):
+        """Load all dimension groups from configured directories"""
+        for dim_dir in self.config.dimension_group_dirs:
+            dim_path = Path(dim_dir)
+            if not dim_path.exists():
+                continue
+                
+            for yaml_file in dim_path.glob("*.yml"):
+                with open(yaml_file, 'r') as f:
+                    data = yaml.safe_load(f)
+                    
+                if 'dimension_groups' in data:
+                    for name, group_def in data['dimension_groups'].items():
+                        self.dimension_groups.register_group(name, group_def)
+                        
+    def _compile_metric(self, metric_def: Dict[str, Any]) -> Dict[str, Any]:
+        """Compile a single metric definition"""
+        # Handle template expansion
+        if 'template' in metric_def or 'extends' in metric_def:
+            metric_def = self._expand_metric_template(metric_def)
+            
+        # Expand dimension groups first
+        if 'dimension_groups' in metric_def:
+            dimensions = []
+            for group_name in metric_def['dimension_groups']:
+                try:
+                    group_dims = self.dimension_groups.get_dimensions_for_group(group_name)
+                    dimensions.extend(group_dims)
+                except ValueError:
+                    # Group not found, skip it
+                    pass
+            # Add any additional dimensions
+            if 'dimensions' in metric_def:
+                dimensions.extend(metric_def['dimensions'])
+            metric_def['dimensions'] = dimensions
+            
+        # Expand dimension references
+        if 'dimensions' in metric_def:
+            metric_def['dimensions'] = self._expand_dimensions(metric_def['dimensions'])
+            
+        # Add default fields
+        compiled = {
+            'name': metric_def['name'],
+            'description': metric_def.get('description', ''),
+            'type': metric_def.get('type', 'simple'),
+            'label': metric_def.get('label', metric_def['name'].replace('_', ' ').title())
+        }
+        
+        # Process metric_time dimensions
+        if 'dimensions' in metric_def:
+            processed_dims = self._process_metric_time_dimensions(metric_def['dimensions'])
+            metric_def['dimensions'] = processed_dims
+            
+        # Also process metric_time in numerator/denominator for ratio metrics
+        if metric_def.get('type') == 'ratio':
+            if 'numerator' in metric_def and 'dimensions' in metric_def['numerator']:
+                metric_def['numerator']['dimensions'] = self._process_metric_time_dimensions(
+                    metric_def['numerator']['dimensions']
+                )
+            if 'denominator' in metric_def and 'dimensions' in metric_def['denominator']:
+                metric_def['denominator']['dimensions'] = self._process_metric_time_dimensions(
+                    metric_def['denominator']['dimensions']
+                )
+        
+        # Only add source if it exists (not all metric types have source)
+        if 'source' in metric_def:
+            compiled['source'] = metric_def['source']
+        
+        # Copy over other fields
+        for key in ['measure', 'numerator', 'denominator', 'formula', 'expression', 
+                   'filter', 'meta', 'config', 'validation', 'auto_variants', 
+                   'window', 'grain_to_date', 'base_measure', 'conversion_measure', 
+                   'entity', 'dimensions', 'fill_nulls_with', 'time_spine', 
+                   'offsets', 'window_type', 'offset_pattern']:
+            if key in metric_def:
+                compiled[key] = deepcopy(metric_def[key])
+                
+        return compiled
+        
+    def _expand_metric_template(self, metric_def: Dict[str, Any]) -> Dict[str, Any]:
+        """Expand metric that uses template or extends"""
+        if 'template' in metric_def:
+            template_name = metric_def['template']
+            params = metric_def.get('params', metric_def.get('parameters', {}))
+            
+            # Expand template
+            try:
+                expanded = self.templates.expand(template_name, params)
+            except Exception:
+                # Template might not be found, return as-is
+                return metric_def
+            
+            # Merge with metric definition (metric fields override template)
+            for key, value in metric_def.items():
+                if key not in ['template', 'params', 'parameters']:
+                    expanded[key] = value
+                    
+            return expanded
+            
+        # Handle extends (already processed by parser)
+        return metric_def
+        
+    def _expand_dimensions(self, dimensions: List[Any]) -> List[Dict[str, Any]]:
+        """Expand dimension references including groups"""
+        expanded = []
+        
+        for dim in dimensions:
+            if isinstance(dim, str):
+                # Simple dimension name
+                expanded.append({'name': dim})
+                
+            elif isinstance(dim, dict):
+                if '$ref' in dim or '$use' in dim:
+                    # Dimension group reference
+                    group_dims = self.dimension_groups.expand_dimension_reference(dim)
+                    expanded.extend(group_dims)
+                else:
+                    # Regular dimension
+                    expanded.append(dim)
+                    
+            elif isinstance(dim, list):
+                # List of dimensions
+                for d in dim:
+                    expanded.extend(self._expand_dimensions([d]))
+                    
+        return expanded
+        
+    def _process_metric_time_dimensions(self, dimensions: List[Any]) -> List[Any]:
+        """Process metric_time dimensions and expand them if needed"""
+        processed = []
+        
+        for dim in dimensions:
+            if isinstance(dim, dict) and dim.get('name') == 'metric_time':
+                # Special handling for metric_time dimension
+                metric_time_dim = deepcopy(dim)
+                
+                # Ensure it has proper type
+                if 'type' not in metric_time_dim:
+                    metric_time_dim['type'] = 'time'
+                    
+                # Set default grain if not specified
+                if 'grain' not in metric_time_dim:
+                    metric_time_dim['grain'] = 'day'
+                    
+                # Mark as metric_time for special handling in semantic model
+                metric_time_dim['is_metric_time'] = True
+                
+                processed.append(metric_time_dim)
+                
+                # If config says to auto-create other grains, add them
+                if hasattr(self, 'config') and 'metric_time' in getattr(self.config, 'config', {}):
+                    mt_config = self.config.config['metric_time']
+                    if mt_config.get('auto_create') and 'grains_to_create' in mt_config:
+                        base_expr = metric_time_dim.get('expr', 'date_column')
+                        for grain in mt_config['grains_to_create']:
+                            if grain != metric_time_dim['grain']:
+                                grain_dim = {
+                                    'name': f'metric_time_{grain}',
+                                    'type': 'time',
+                                    'grain': grain,
+                                    'expr': f"DATE_TRUNC('{grain}', {base_expr})",
+                                    'is_metric_time_grain': True
+                                }
+                                processed.append(grain_dim)
+            else:
+                processed.append(dim)
+                
+        return processed
+        
+    def _register_imported_dimension_groups(self):
+        """Register dimension groups from imported files"""
+        for alias, imported_data in self.parser.imports_cache.items():
+            if 'dimension_groups' in imported_data:
+                # First pass: register all groups without resolving extends
+                for name, group_def in imported_data['dimension_groups'].items():
+                    # Make a copy and adjust extends references if needed
+                    adjusted_group = deepcopy(group_def)
+                    if 'extends' in adjusted_group:
+                        # Adjust extends to include alias prefix
+                        adjusted_extends = []
+                        for extend_ref in adjusted_group['extends']:
+                            if '.' not in extend_ref:
+                                # It's a local reference within the same import
+                                adjusted_extends.append(f"{alias}.{extend_ref}")
+                            else:
+                                adjusted_extends.append(extend_ref)
+                        adjusted_group['extends'] = adjusted_extends
+                    
+                    # Register with alias prefix
+                    full_name = f"{alias}.{name}"
+                    self.dimension_groups.register_group(full_name, adjusted_group)
+                    
+    def _register_imported_templates(self):
+        """Register templates from imported files"""
+        for alias, imported_data in self.parser.imports_cache.items():
+            if 'metric_templates' in imported_data:
+                for name, template_def in imported_data['metric_templates'].items():
+                    # Register with alias prefix
+                    full_name = f"{alias}.{name}"
+                    self.templates.engine.register_template(full_name, template_def)
+                    
+    def _resolve_references_in_group(self, group_def: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve any $ref references in a dimension group definition"""
+        resolved = deepcopy(group_def)
+        
+        if 'dimensions' in resolved:
+            expanded_dims = []
+            for dim in resolved['dimensions']:
+                if isinstance(dim, dict) and '$ref' in dim:
+                    # Resolve the reference
+                    ref_path = dim['$ref']
+                    resolved_dims = self._resolve_dimension_reference(ref_path)
+                    expanded_dims.extend(resolved_dims)
+                else:
+                    expanded_dims.append(dim)
+            resolved['dimensions'] = expanded_dims
+            
+        return resolved
+        
+    def _resolve_dimension_reference(self, ref_path: str) -> List[Dict[str, Any]]:
+        """Resolve a dimension reference like 'time.daily' or 'dims.customer_standard.customer_segment'"""
+        try:
+            # Try to resolve as a dimension group
+            group_dims = self.dimension_groups.get_dimensions_for_group(ref_path)
+            return group_dims
+        except ValueError:
+            # Not a direct group reference, might be a reference to imported content
+            parts = ref_path.split('.')
+            if len(parts) >= 2 and parts[0] in self.parser.imports_cache:
+                # It's an import reference
+                imported_data = self.parser.imports_cache[parts[0]]
+                
+                # Check if it's a dimension group reference
+                if len(parts) == 2 and 'dimension_groups' in imported_data and parts[1] in imported_data['dimension_groups']:
+                    group_def = imported_data['dimension_groups'][parts[1]]
+                    # Return the dimensions from the group
+                    if 'dimensions' in group_def:
+                        return group_def['dimensions']
+                
+                # Check if it's a specific dimension within a group (e.g., dims.customer_standard.customer_segment)
+                elif len(parts) == 3 and 'dimension_groups' in imported_data and parts[1] in imported_data['dimension_groups']:
+                    group_def = imported_data['dimension_groups'][parts[1]]
+                    if 'dimensions' in group_def:
+                        # Find the specific dimension
+                        for dim in group_def['dimensions']:
+                            dim_name = dim.get('name') if isinstance(dim, dict) else dim
+                            if dim_name == parts[2]:
+                                return [dim]
+            
+            # If we can't resolve it, return it as-is
+            return [{'$ref': ref_path}]
+        
+    def _generate_auto_variants(self, metric: Dict[str, Any]):
+        """Generate automatic metric variants"""
+        auto_config = metric.get('auto_variants', {})
+        base_name = metric['name']
+        
+        # Time comparison variants
+        if 'time_comparison' in auto_config:
+            for period in auto_config['time_comparison']:
+                variant = deepcopy(metric)
+                variant['name'] = f"{base_name}_{period}"
+                variant['description'] = f"{metric['description']} - {period.upper()} comparison"
+                variant['type'] = 'time_comparison'
+                variant['comparison'] = {
+                    'period': period,
+                    'base_metric': base_name
+                }
+                self.compiled_metrics.append(variant)
+                # Also add to metrics_by_source
+                source = variant.get('source', 'unknown')
+                if source not in self.metrics_by_source:
+                    self.metrics_by_source[source] = []
+                self.metrics_by_source[source].append(variant)
+                
+        # By-dimension variants
+        if 'by_dimension' in auto_config:
+            for dim in auto_config['by_dimension']:
+                variant = deepcopy(metric)
+                variant['name'] = f"{base_name}_by_{dim}"
+                variant['description'] = f"{metric['description']} by {dim}"
+                # Add the dimension if not already present
+                if 'dimensions' not in variant:
+                    variant['dimensions'] = []
+                if not any(d.get('name') == dim for d in variant['dimensions']):
+                    variant['dimensions'].append({'name': dim})
+                self.compiled_metrics.append(variant)
+                # Also add to metrics_by_source
+                source = variant.get('source', 'unknown')
+                if source not in self.metrics_by_source:
+                    self.metrics_by_source[source] = []
+                self.metrics_by_source[source].append(variant)
+                
+    def _generate_output(self) -> Dict[str, Any]:
+        """Generate the final dbt output"""
+        # Generate semantic models from metrics grouped by source
+        self._generate_semantic_models()
+        
+        # Generate metric definitions
+        dbt_metrics = []
+        for metric in self.compiled_metrics:
+            dbt_metric = self._to_dbt_metric(metric)
+            dbt_metrics.append(dbt_metric)
+            
+        return {
+            'version': 2,
+            'semantic_models': self.semantic_models,
+            'metrics': dbt_metrics
+        }
+        
+    def _generate_semantic_models(self):
+        """Generate dbt semantic models from compiled metrics"""
+        # Check if any semantic models were explicitly defined
+        if 'semantic_models' in self.parser.current_data:
+            for sm_def in self.parser.current_data['semantic_models']:
+                self._process_semantic_model_definition(sm_def)
+        
+        # Generate semantic models from metrics grouped by source
+        for source, metrics in self.metrics_by_source.items():
+            # Skip if a semantic model was already explicitly defined for this source
+            if any(sm['name'] == f"sem_{source}" for sm in self.semantic_models):
+                continue
+                
+            # Collect all dimensions and measures
+            all_dimensions = []
+            all_measures = []
+            dimension_names = set()
+            measure_names = set()
+            
+            for metric in metrics:
+                # Add dimensions
+                for dim in metric.get('dimensions', []):
+                    # Skip unresolved references
+                    if isinstance(dim, dict) and '$ref' in dim:
+                        continue
+                    dim_name = dim.get('name') if isinstance(dim, dict) else dim
+                    if dim_name and dim_name not in dimension_names:
+                        dimension_names.add(dim_name)
+                        all_dimensions.append(self._to_dbt_dimension(dim))
+                        
+                # Add measures
+                if 'measure' in metric:
+                    measure_name = f"{metric['name']}_measure"
+                    if measure_name not in measure_names:
+                        measure_names.add(measure_name)
+                        all_measures.append(self._to_dbt_measure(metric['measure'], measure_name))
+                        
+                # Add measures for ratio metrics
+                if metric['type'] == 'ratio' and 'numerator' in metric and 'denominator' in metric:
+                    # Numerator measure
+                    num_measure_name = f"{metric['name']}_numerator"
+                    if num_measure_name not in measure_names:
+                        measure_names.add(num_measure_name)
+                        all_measures.append(self._to_dbt_measure(metric['numerator']['measure'], num_measure_name))
+                    
+                    # Denominator measure
+                    den_measure_name = f"{metric['name']}_denominator"
+                    if den_measure_name not in measure_names:
+                        measure_names.add(den_measure_name)
+                        all_measures.append(self._to_dbt_measure(metric['denominator']['measure'], den_measure_name))
+                        
+            # Create semantic model
+            semantic_model = {
+                'name': f"sem_{source}",
+                'model': f"ref('{source}')",
+                'description': f"Semantic model for {source}",
+                'dimensions': all_dimensions,
+                'measures': all_measures,
+                'entities': self._extract_entities(source, metrics)
+            }
+            
+            # Add time spine configurations if any metrics use them
+            time_spine_configs = self._extract_time_spine_configs(metrics)
+            if time_spine_configs:
+                semantic_model['time_spine_table_configurations'] = time_spine_configs
+            
+            # Add join configurations if any are relevant
+            joins = self._extract_relevant_joins(source, metrics)
+            if joins:
+                semantic_model['joins'] = joins
+            
+            self.semantic_models.append(semantic_model)
+            
+    def _process_semantic_model_definition(self, sm_def: Dict[str, Any]):
+        """Process an explicitly defined semantic model"""
+        semantic_model = {
+            'name': sm_def['name'],
+            'model': f"ref('{sm_def.get('source', sm_def['name'])}')",
+            'description': sm_def.get('description', f"Semantic model for {sm_def['name']}"),
+        }
+        
+        # Handle entity sets
+        if 'entity_set' in sm_def and sm_def['entity_set'] in self.entity_sets:
+            entity_set = self.entity_sets[sm_def['entity_set']]
+            # Build entities from entity set
+            entities = []
+            primary = entity_set['primary_entity']
+            if primary in self.entities:
+                primary_def = self.entities[primary]
+                entities.append({
+                    'name': primary,
+                    'type': 'primary',
+                    'expr': primary_def.get('column', primary)
+                })
+                
+                # Add included entities
+                for include in entity_set.get('includes', []):
+                    entity_name = include['entity']
+                    if entity_name in self.entities:
+                        entity_def = self.entities[entity_name]
+                        # Find the foreign key relationship
+                        for rel in entity_def.get('relationships', []):
+                            if rel['to_entity'] == primary or (include.get('through') and rel['to_entity'] == include['through']):
+                                entities.append({
+                                    'name': rel.get('foreign_key', f"{rel['to_entity']}_id"),
+                                    'type': 'foreign',
+                                    'expr': rel.get('foreign_key', f"{rel['to_entity']}_id")
+                                })
+                                break
+            semantic_model['entities'] = entities
+        
+        # Handle explicit entities
+        elif 'entities' in sm_def:
+            entities = []
+            for entity in sm_def['entities']:
+                entity_dict = {
+                    'name': entity['name'],
+                    'type': entity.get('type', 'primary'),
+                    'expr': entity.get('expr', entity['name'])
+                }
+                # Add relationship info if present
+                if 'relationship' in entity:
+                    rel = entity['relationship']
+                    # Store relationship info in metadata (dbt may use this for join paths)
+                    if 'meta' not in entity_dict:
+                        entity_dict['meta'] = {}
+                    entity_dict['meta']['relationship'] = {
+                        'to_entity': rel['to_entity'],
+                        'type': rel['type']
+                    }
+                entities.append(entity_dict)
+            semantic_model['entities'] = entities
+        
+        # Copy other fields
+        for field in ['dimensions', 'measures', 'meta', 'config', 'time_spine_table_configurations', 'primary_time_dimension', 'joins']:
+            if field in sm_def:
+                semantic_model[field] = sm_def[field]
+        
+        self.semantic_models.append(semantic_model)
+            
+    def _to_dbt_dimension(self, dim: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert dimension to dbt format"""
+        # Handle metric_time specially
+        if dim.get('name') == 'metric_time' or dim.get('is_metric_time'):
+            dbt_dim = {
+                'name': 'metric_time',
+                'type': 'time',
+                'type_params': {
+                    'time_granularity': dim.get('grain', 'day')
+                }
+            }
+            # Add expression if provided
+            if 'expr' in dim:
+                dbt_dim['expr'] = dim['expr']
+            # Add label
+            dbt_dim['label'] = 'Metric Time'
+            
+            # Mark as primary time dimension if it's the base metric_time
+            if dim.get('is_metric_time') and not dim.get('is_metric_time_grain'):
+                dbt_dim['is_primary_time'] = True
+                
+        elif dim.get('is_metric_time_grain'):
+            # Handle auto-generated metric_time grains
+            dbt_dim = {
+                'name': dim['name'],
+                'type': 'time',
+                'type_params': {
+                    'time_granularity': dim['grain']
+                },
+                'expr': dim['expr'],
+                'label': f"Metric Time ({dim['grain'].title()})"
+            }
+        else:
+            # Regular dimension handling
+            dbt_dim = {
+                'name': dim['name'],
+                'type': dim.get('type', 'categorical')
+            }
+            
+            if dim.get('type') == 'time':
+                dbt_dim['type_params'] = {
+                    'time_granularity': dim.get('grain', 'day')
+                }
+                
+            if 'expr' in dim:
+                dbt_dim['expr'] = dim['expr']
+            elif 'source' in dim:
+                dbt_dim['expr'] = dim['source']
+                
+            if 'label' in dim:
+                dbt_dim['label'] = dim['label']
+            
+        return dbt_dim
+        
+    def _extract_entities(self, source: str, metrics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Extract entities from metrics for a semantic model"""
+        entities = []
+        entity_names = set()
+        
+        # Common entity patterns
+        default_entities = {
+            'user': ['user_id', 'customer_id', 'visitor_id'],
+            'order': ['order_id', 'transaction_id'],
+            'product': ['product_id', 'sku', 'item_id'],
+            'session': ['session_id', 'visit_id']
+        }
+        
+        # First, check if there are pre-defined entities
+        primary_entities = []
+        for metric in metrics:
+            if 'entity' in metric:
+                entity_name = metric['entity']
+                if entity_name in self.entities:
+                    # Use the pre-defined entity
+                    entity_def = self.entities[entity_name]
+                    if entity_name not in entity_names:
+                        entity_names.add(entity_name)
+                        entity_dict = {
+                            'name': entity_name,
+                            'type': entity_def.get('type', 'primary'),
+                            'expr': entity_def.get('column', entity_name)
+                        }
+                        entities.append(entity_dict)
+                        primary_entities.append(entity_name)
+                        
+                        # Add related entities through relationships
+                        if 'relationships' in entity_def:
+                            for rel in entity_def['relationships']:
+                                related_entity = rel['to_entity']
+                                if related_entity in self.entities and related_entity not in entity_names:
+                                    entity_names.add(related_entity)
+                                    related_def = self.entities[related_entity]
+                                    entities.append({
+                                        'name': rel.get('foreign_key', f"{related_entity}_id"),
+                                        'type': 'foreign',
+                                        'expr': rel.get('foreign_key', f"{related_entity}_id")
+                                    })
+                else:
+                    # Entity not pre-defined, use default behavior
+                    if entity_name not in entity_names:
+                        entity_names.add(entity_name)
+                        entities.append({
+                            'name': entity_name,
+                            'type': 'primary',
+                            'expr': entity_name
+                        })
+            
+            # Also check conversion metrics
+            if metric['type'] == 'conversion' and 'entity' in metric.get('type_params', {}):
+                entity_name = metric['type_params']['entity']
+                if entity_name not in entity_names:
+                    entity_names.add(entity_name)
+                    if entity_name in self.entities:
+                        entity_def = self.entities[entity_name]
+                        entities.append({
+                            'name': entity_name,
+                            'type': entity_def.get('type', 'primary'),
+                            'expr': entity_def.get('column', entity_name)
+                        })
+                    else:
+                        entities.append({
+                            'name': entity_name,
+                            'type': 'primary',
+                            'expr': entity_name
+                        })
+        
+        # If no explicit entities, try to infer from common patterns
+        if not entities:
+            for entity_type, id_columns in default_entities.items():
+                for id_col in id_columns:
+                    # Check if any dimension uses this column
+                    for metric in metrics:
+                        for dim in metric.get('dimensions', []):
+                            if dim.get('name') == id_col or dim.get('expr', '').lower() == id_col.lower():
+                                if id_col not in entity_names:
+                                    entity_names.add(id_col)
+                                    entities.append({
+                                        'name': id_col,
+                                        'type': 'primary',
+                                        'expr': id_col
+                                    })
+                                break
+        
+        # Default to a generic entity if none found
+        if not entities:
+            entities.append({
+                'name': 'id',
+                'type': 'primary', 
+                'expr': f"{source}_id"  # Assume table has an id column
+            })
+            
+        return entities
+        
+    def _extract_time_spine_configs(self, metrics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Extract time spine configurations from metrics"""
+        time_spine_configs = []
+        seen_spines = set()
+        
+        for metric in metrics:
+            if 'time_spine' in metric:
+                spine_ref = metric['time_spine']
+                
+                # Handle inline time spine definition
+                if isinstance(spine_ref, dict):
+                    config = {
+                        'location': spine_ref['model'],
+                        'column_name': spine_ref.get('columns', {}).get('date_day', 'date_day'),
+                        'grain': 'day'  # Default grain
+                    }
+                    if 'meta' in spine_ref:
+                        config['meta'] = spine_ref['meta']
+                    time_spine_configs.append(config)
+                    
+                # Handle reference to pre-defined time spine
+                elif spine_ref in self.time_spines:
+                    if spine_ref not in seen_spines:
+                        seen_spines.add(spine_ref)
+                        spine_def = self.time_spines[spine_ref]
+                        
+                        # Create configuration for each grain in the spine
+                        for grain, column in spine_def.get('columns', {}).items():
+                            # Extract grain from column name (e.g., date_day -> day)
+                            grain_type = grain.split('_')[-1] if '_' in grain else grain
+                            
+                            config = {
+                                'location': spine_def['model'],
+                                'column_name': column,
+                                'grain': grain_type
+                            }
+                            if 'meta' in spine_def:
+                                config['meta'] = spine_def['meta']
+                            time_spine_configs.append(config)
+                            
+            # Also check time dimensions for implicit time spine needs
+            elif 'dimensions' in metric:
+                for dim in metric.get('dimensions', []):
+                    if isinstance(dim, dict) and dim.get('type') == 'time':
+                        # If metric has time dimensions but no explicit spine, 
+                        # check if default spine exists
+                        if 'default' in self.time_spines and 'default' not in seen_spines:
+                            seen_spines.add('default')
+                            default_spine = self.time_spines['default']
+                            
+                            for grain, column in default_spine.get('columns', {}).items():
+                                grain_type = grain.split('_')[-1] if '_' in grain else grain
+                                config = {
+                                    'location': default_spine['model'],
+                                    'column_name': column,
+                                    'grain': grain_type
+                                }
+                                if 'meta' in default_spine:
+                                    config['meta'] = default_spine['meta']
+                                time_spine_configs.append(config)
+                        break
+        
+        return time_spine_configs
+        
+    def _extract_relevant_joins(self, source: str, metrics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Extract join configurations relevant to the metrics"""
+        joins = []
+        seen_joins = set()
+        
+        # Collect all dimension sources referenced in metrics
+        dimension_sources = set()
+        for metric in metrics:
+            # Check dimensions for source references
+            for dim in metric.get('dimensions', []):
+                if isinstance(dim, dict) and 'source' in dim:
+                    dimension_sources.add(dim['source'])
+                    
+            # Check if metric uses join paths
+            if 'join_paths' in metric:
+                # Expand join path aliases
+                for path_ref in metric['join_paths']:
+                    if path_ref in self.join_path_aliases:
+                        alias_def = self.join_path_aliases[path_ref]
+                        for path in alias_def.get('paths', []):
+                            if 'to' in path:
+                                dimension_sources.add(path['to'])
+        
+        # Find join paths that connect source to dimension sources
+        for join_path in self.join_paths:
+            if join_path.get('from') == source and join_path.get('to') in dimension_sources:
+                join_key = f"{join_path['from']}->{join_path['to']}"
+                if join_key not in seen_joins:
+                    seen_joins.add(join_key)
+                    
+                    # Convert to dbt join format
+                    dbt_join = {
+                        'name': join_path['to'],
+                        'type': join_path.get('join_type', 'left')
+                    }
+                    
+                    # Build SQL ON clause from join keys
+                    on_conditions = []
+                    for key in join_path.get('join_keys', []):
+                        on_conditions.append(
+                            f"${{{{ {source} }}}}.{key['from_column']} = ${{{{ {join_path['to']} }}}}.{key['to_column']}"
+                        )
+                    
+                    # Add any additional join conditions
+                    if 'join_conditions' in join_path:
+                        on_conditions.extend(join_path['join_conditions'])
+                    
+                    if on_conditions:
+                        dbt_join['sql_on'] = ' AND '.join(on_conditions)
+                    
+                    joins.append(dbt_join)
+                    
+            # Handle multi-hop joins
+            elif 'through' in join_path and join_path.get('from') == source:
+                # This is a multi-hop join, need to expand it
+                if 'join_path' in join_path:
+                    for path_segment in join_path['join_path']:
+                        segment_key = f"{path_segment.get('from', '')}->{path_segment.get('to', '')}"
+                        if segment_key not in seen_joins and path_segment.get('to') in dimension_sources:
+                            seen_joins.add(segment_key)
+                            
+                            dbt_join = {
+                                'name': path_segment['to'],
+                                'type': path_segment.get('join_type', 'left')
+                            }
+                            
+                            on_conditions = []
+                            for key in path_segment.get('join_keys', []):
+                                on_conditions.append(
+                                    f"${{{{ {path_segment.get('from', source)} }}}}.{key['from_column']} = ${{{{ {path_segment['to']} }}}}.{key['to_column']}"
+                                )
+                            
+                            if on_conditions:
+                                dbt_join['sql_on'] = ' AND '.join(on_conditions)
+                            
+                            joins.append(dbt_join)
+        
+        return joins
+        
+    def _to_dbt_measure(self, measure: Dict[str, Any], name: str) -> Dict[str, Any]:
+        """Convert measure to dbt format"""
+        # Map common measure types to dbt aggregations
+        agg_type_mapping = {
+            'sum': 'sum',
+            'average': 'average',
+            'avg': 'average',
+            'count': 'count',
+            'count_distinct': 'count_distinct',
+            'min': 'min',
+            'max': 'max',
+            'median': 'median',
+            'percentile': 'percentile',
+            'sum_boolean': 'sum_boolean',
+            'stddev': 'stddev',
+            'variance': 'variance',
+            'last_value': 'max',  # Map last_value to max for now
+            'first_value': 'min',  # Map first_value to min for now
+            'window': 'sum'  # Window functions need special handling
+        }
+        
+        measure_type = measure.get('type', 'sum')
+        
+        # Handle window functions specially
+        if measure_type == 'window':
+            return self._handle_window_measure(measure, name)
+        
+        dbt_agg = agg_type_mapping.get(measure_type, measure_type)
+        
+        dbt_measure = {
+            'name': name,
+            'agg': dbt_agg,
+            'expr': measure.get('column', measure.get('expr', name))
+        }
+        
+        # Handle filters
+        if 'filters' in measure:
+            where_clause = ' AND '.join(measure['filters'])
+            dbt_measure['agg_params'] = {'where': where_clause}
+            
+            # Extract metric references from filters
+            metric_refs = []
+            for filter_expr in measure['filters']:
+                refs = self._extract_metric_refs(filter_expr)
+                metric_refs.extend(refs)
+            
+            if metric_refs:
+                # Store metric references in agg_params
+                dbt_measure['agg_params']['metric_refs'] = metric_refs
+            
+        # Handle percentile params
+        if dbt_agg == 'percentile':
+            percentile_value = measure.get('percentile', measure.get('percentile_value', 0.5))
+            if 'agg_params' not in dbt_measure:
+                dbt_measure['agg_params'] = {}
+            dbt_measure['agg_params']['percentile'] = percentile_value
+            
+            # Also merge any existing agg_params
+            if 'agg_params' in measure:
+                dbt_measure['agg_params'].update(measure['agg_params'])
+            
+        return dbt_measure
+        
+    def _handle_window_measure(self, measure: Dict[str, Any], name: str) -> Dict[str, Any]:
+        """Handle window function measures"""
+        window_function = measure.get('window_function', '')
+        column = measure.get('column', measure.get('expr', 'value'))
+        
+        # Replace {{ column }} placeholder with actual column
+        window_expr = window_function.replace('{{ column }}', column)
+        
+        # Get the aggregation to apply after window function (if any)
+        post_aggregation = measure.get('aggregation', 'sum')
+        
+        dbt_measure = {
+            'name': name,
+            'agg': post_aggregation,
+            'expr': window_expr
+        }
+        
+        # Handle filters if present
+        if 'filters' in measure:
+            where_clause = ' AND '.join(measure['filters'])
+            dbt_measure['agg_params'] = {'where': where_clause}
+        
+        # Add window function metadata
+        if 'agg_params' not in dbt_measure:
+            dbt_measure['agg_params'] = {}
+        dbt_measure['agg_params']['is_window_function'] = True
+        
+        # Add any window-specific parameters
+        if 'null_treatment' in measure:
+            dbt_measure['agg_params']['null_treatment'] = measure['null_treatment']
+            
+        return dbt_measure
+        
+    def _extract_metric_refs(self, expression: str) -> List[str]:
+        """Extract metric references from an expression"""
+        import re
+        # Look for patterns like metric('metric_name') or {{metric('metric_name')}}
+        pattern = r"metric\s*\(\s*['\"]([^'\"]+)['\"]\s*\)"
+        return re.findall(pattern, expression)
+        
+    def _to_dbt_metric(self, metric: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert compiled metric to dbt metric format"""
+        dbt_metric = {
+            'name': metric['name'],
+            'description': metric['description'],
+            'type': metric['type'],
+            'label': metric.get('label', metric['name'])
+        }
+        
+        # Add type-specific parameters
+        if metric['type'] == 'simple':
+            dbt_metric['type_params'] = {
+                'measure': f"{metric['name']}_measure"
+            }
+        elif metric['type'] == 'ratio':
+            # Handle ratio metrics
+            if 'numerator' in metric and 'denominator' in metric:
+                # Create measures for numerator and denominator
+                num_measure_name = f"{metric['name']}_numerator"
+                den_measure_name = f"{metric['name']}_denominator"
+                
+                dbt_metric['type_params'] = {
+                    'numerator': {
+                        'name': num_measure_name,
+                        'filter': metric['numerator'].get('filter')
+                    },
+                    'denominator': {
+                        'name': den_measure_name,
+                        'filter': metric['denominator'].get('filter')
+                    }
+                }
+        elif metric['type'] == 'derived':
+            # Handle derived metrics
+            if 'expression' in metric or 'formula' in metric:
+                dbt_metric['type_params'] = {
+                    'expr': metric.get('expression', metric.get('formula')),
+                    'metrics': self._extract_metric_refs(metric.get('expression', metric.get('formula', '')))
+                }
+        elif metric['type'] == 'cumulative':
+            # Handle cumulative metrics
+            dbt_metric['type_params'] = {
+                'measure': f"{metric['name']}_measure",
+                'cumulative_type_params': {
+                    'window': metric.get('window', 'unbounded'),
+                    'grain_to_date': metric.get('grain_to_date', 'month')
+                }
+            }
+            
+            # Handle offset windows
+            if 'offsets' in metric or 'offset_pattern' in metric:
+                offset_configs = []
+                
+                # Handle offset pattern first
+                if 'offset_pattern' in metric and metric['offset_pattern'] in self.offset_patterns:
+                    pattern_offsets = self.offset_patterns[metric['offset_pattern']]
+                    offset_configs.extend(pattern_offsets)
+                
+                # Handle explicit offsets (can override pattern)
+                if 'offsets' in metric:
+                    offset_configs.extend(metric['offsets'])
+                
+                # Process offset configurations
+                dbt_offset_windows = []
+                for offset in offset_configs:
+                    offset_window = {
+                        'period': offset['period'],
+                        'offset': offset['offset'],
+                        'alias': offset.get('alias', f"{offset['period']}_{abs(offset['offset'])}_ago")
+                    }
+                    
+                    # Add optional fields
+                    if 'calculation' in offset:
+                        offset_window['calculation'] = offset['calculation']
+                    if 'calculation_alias' in offset:
+                        offset_window['calculation_alias'] = offset['calculation_alias']
+                    if 'calculations' in offset:
+                        offset_window['calculations'] = offset['calculations']
+                    if 'inherit_filters' in offset:
+                        offset_window['inherit_filters'] = offset['inherit_filters']
+                        
+                    dbt_offset_windows.append(offset_window)
+                
+                # Add to cumulative type params
+                dbt_metric['type_params']['cumulative_type_params']['offset_windows'] = dbt_offset_windows
+                
+            # Handle window type
+            if 'window_type' in metric:
+                dbt_metric['type_params']['cumulative_type_params']['window_type'] = metric['window_type']
+        elif metric['type'] == 'conversion':
+            # Handle conversion metrics
+            if 'base_measure' in metric and 'conversion_measure' in metric:
+                dbt_metric['type_params'] = {
+                    'base_measure': {
+                        'name': f"{metric['name']}_base_measure",
+                        'filter': metric['base_measure'].get('filter')
+                    },
+                    'conversion_measure': {
+                        'name': f"{metric['name']}_conversion_measure", 
+                        'filter': metric['conversion_measure'].get('filter')
+                    },
+                    'entity': metric.get('entity', 'user_id'),
+                    'window': metric.get('window', '7 days')
+                }
+            
+        # Add optional fields
+        for field in ['filter', 'meta', 'config']:
+            if field in metric:
+                dbt_metric[field] = metric[field]
+                
+        # Handle fill_nulls_with
+        if 'fill_nulls_with' in metric:
+            # Add to config
+            if 'config' not in dbt_metric:
+                dbt_metric['config'] = {}
+            dbt_metric['config']['fill_nulls_with'] = metric['fill_nulls_with']
+            
+        # Handle time_spine
+        if 'time_spine' in metric:
+            # Add to config
+            if 'config' not in dbt_metric:
+                dbt_metric['config'] = {}
+            dbt_metric['config']['time_spine'] = metric['time_spine']
+                
+        # Extract metric references from filter if present
+        if 'filter' in dbt_metric:
+            filter_metric_refs = self._extract_metric_refs(dbt_metric['filter'])
+            if filter_metric_refs:
+                # Add metric references to metadata
+                if 'meta' not in dbt_metric:
+                    dbt_metric['meta'] = {}
+                dbt_metric['meta']['metric_refs_in_filter'] = filter_metric_refs
+                
+                # Add to type_params metrics list if not already there
+                if 'type_params' in dbt_metric and 'metrics' in dbt_metric['type_params']:
+                    existing_refs = dbt_metric['type_params']['metrics']
+                    for ref in filter_metric_refs:
+                        if ref not in existing_refs:
+                            existing_refs.append(ref)
+                elif 'type_params' in dbt_metric:
+                    dbt_metric['type_params']['metrics'] = filter_metric_refs
+                
+        return dbt_metric
+        
+    def _write_split_output(self, output_data: Dict[str, Any]):
+        """Write output to separate files"""
+        try:
+            output_path = Path(self.config.output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+            
+            written_files = []
+            
+            # Write semantic models
+            for model in output_data['semantic_models']:
+                file_path = output_path / f"{model['name']}.yml"
+                try:
+                    with open(file_path, 'w') as f:
+                        yaml.dump({'semantic_models': [model]}, f, default_flow_style=False)
+                    written_files.append(file_path)
+                except IOError as e:
+                    raise IOError(f"Failed to write semantic model {model['name']}: {e}")
+                    
+            # Write metrics
+            metrics_file = output_path / "_metrics.yml"
+            try:
+                with open(metrics_file, 'w') as f:
+                    yaml.dump({'metrics': output_data['metrics']}, f, default_flow_style=False)
+                written_files.append(metrics_file)
+            except IOError as e:
+                raise IOError(f"Failed to write metrics file: {e}")
+                
+            return written_files
+            
+        except Exception as e:
+            raise RuntimeError(f"Error writing output files: {e}")
+            
+    def _write_single_output(self, output_data: Dict[str, Any]):
+        """Write all output to a single file"""
+        try:
+            output_path = Path(self.config.output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+            
+            output_file = output_path / "compiled_semantic_models.yml"
+            try:
+                with open(output_file, 'w') as f:
+                    yaml.dump(output_data, f, default_flow_style=False, sort_keys=False)
+                return [output_file]
+            except IOError as e:
+                raise IOError(f"Failed to write output file: {e}")
+                
+        except Exception as e:
+            raise RuntimeError(f"Error writing output file: {e}")

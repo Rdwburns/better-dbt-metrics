@@ -1,0 +1,200 @@
+# Example: Advanced workflow with dbt integration
+# This workflow validates, compiles, and runs dbt with the generated models
+
+name: Metrics Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'metrics/**'
+      - 'templates/**'
+      - 'models/**'
+      - 'dbt_project.yml'
+  pull_request:
+    paths:
+      - 'metrics/**'
+      - 'templates/**'
+      - 'models/**'
+      - 'dbt_project.yml'
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      full_refresh:
+        description: 'Run dbt with --full-refresh'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DBT_PROFILES_DIR: ./
+  SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+  SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+  SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+  SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+  SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+  SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+
+jobs:
+  validate:
+    name: Validate Metrics
+    runs-on: ubuntu-latest
+    outputs:
+      validation_passed: ${{ steps.validate.outputs.validation-passed }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate Better-DBT-Metrics
+        id: validate
+        uses: rdwburns/better-dbt-metrics@v2
+        with:
+          metrics-dir: 'metrics/'
+          validate-only: true
+          fail-on-warning: true
+          comment-on-pr: true
+          
+  compile:
+    name: Compile Metrics
+    needs: validate
+    if: needs.validate.outputs.validation_passed == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Compile Better-DBT-Metrics
+        id: compile
+        uses: rdwburns/better-dbt-metrics@v2
+        with:
+          metrics-dir: 'metrics/'
+          output-dir: 'models/semantic/'
+          template-dirs: 'templates/,shared/templates/'
+          upload-artifacts: true
+          
+      - name: Commit compiled models
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add models/semantic/
+          git diff --staged --quiet || git commit -m "Auto-compile metrics [skip ci]"
+          git push
+          
+  test:
+    name: Test dbt Models
+    needs: compile
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download compiled models
+        uses: actions/download-artifact@v3
+        with:
+          name: compiled-dbt-models
+          path: models/semantic/
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dbt
+        run: |
+          pip install dbt-core dbt-snowflake
+          
+      - name: Create profiles.yml
+        run: |
+          cat > profiles.yml << EOF
+          default:
+            outputs:
+              dev:
+                type: snowflake
+                account: ${SNOWFLAKE_ACCOUNT}
+                user: ${SNOWFLAKE_USER}
+                password: ${SNOWFLAKE_PASSWORD}
+                role: ${SNOWFLAKE_ROLE}
+                database: ${SNOWFLAKE_DATABASE}
+                warehouse: ${SNOWFLAKE_WAREHOUSE}
+                schema: dbt_ci
+                threads: 4
+            target: dev
+          EOF
+          
+      - name: Run dbt deps
+        run: dbt deps
+        
+      - name: Run dbt seed
+        run: dbt seed --target dev
+        
+      - name: Run dbt models
+        run: |
+          if [ "${{ inputs.full_refresh }}" == "true" ]; then
+            dbt run --target dev --full-refresh
+          else
+            dbt run --target dev
+          fi
+          
+      - name: Run dbt tests
+        run: dbt test --target dev
+        
+  deploy:
+    name: Deploy to Production
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download compiled models
+        uses: actions/download-artifact@v3
+        with:
+          name: compiled-dbt-models
+          path: models/semantic/
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dbt
+        run: |
+          pip install dbt-core dbt-snowflake
+          
+      - name: Create profiles.yml
+        run: |
+          cat > profiles.yml << EOF
+          default:
+            outputs:
+              prod:
+                type: snowflake
+                account: ${SNOWFLAKE_ACCOUNT}
+                user: ${SNOWFLAKE_USER}
+                password: ${SNOWFLAKE_PASSWORD}
+                role: ANALYTICS_PROD_ROLE
+                database: ANALYTICS_PROD
+                warehouse: ANALYTICS_PROD_WH
+                schema: semantic
+                threads: 8
+            target: prod
+          EOF
+          
+      - name: Run dbt in production
+        run: |
+          dbt deps
+          dbt run --target prod --models +semantic
+          
+      - name: Generate dbt docs
+        run: |
+          dbt docs generate --target prod
+          
+      - name: Upload dbt docs
+        uses: actions/upload-artifact@v3
+        with:
+          name: dbt-docs
+          path: target/

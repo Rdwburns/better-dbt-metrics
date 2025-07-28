@@ -1,0 +1,161 @@
+# Example: Time Spine Configuration
+# Time spines are essential for proper time series analysis in dbt semantic layer
+
+version: 2
+
+# Define time spine configuration
+time_spine:
+  # Default time spine for all metrics
+  default:
+    model: ref('dim_date')  # Reference to your date dimension table
+    columns:
+      date_day: date_day
+      date_week: date_week 
+      date_month: date_month
+      date_quarter: date_quarter
+      date_year: date_year
+    
+  # Custom time spine for hourly metrics
+  hourly:
+    model: ref('dim_datetime') 
+    columns:
+      datetime_hour: datetime_hour
+      date_day: date_day
+      date_week: date_week
+      date_month: date_month
+      
+  # Financial calendar spine
+  fiscal:
+    model: ref('dim_fiscal_calendar')
+    columns:
+      fiscal_date: fiscal_date
+      fiscal_week: fiscal_week
+      fiscal_month: fiscal_month
+      fiscal_quarter: fiscal_quarter
+      fiscal_year: fiscal_year
+    meta:
+      fiscal_year_start_month: 4  # April
+
+# Metrics using time spines
+metrics:
+  # Basic metric using default time spine
+  - name: daily_revenue
+    description: "Daily revenue with complete time series"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+    time_spine: default  # Use default time spine
+    
+  # Hourly metric using custom time spine  
+  - name: hourly_traffic
+    description: "Website traffic by hour"
+    type: simple
+    source: fct_page_views
+    measure:
+      type: count
+      column: page_view_id
+    dimensions:
+      - name: view_datetime
+        type: time
+        grain: hour
+    time_spine: hourly  # Use hourly time spine
+    
+  # Fiscal metric using fiscal calendar
+  - name: fiscal_quarter_revenue
+    description: "Revenue by fiscal quarter"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: order_date
+        type: time
+        grain: quarter
+    time_spine: fiscal  # Use fiscal calendar spine
+    config:
+      fiscal_alignment: true
+      
+  # Metric with custom time spine inline
+  - name: manufacturing_daily_output
+    description: "Manufacturing output with custom calendar"
+    type: simple
+    source: fct_production
+    measure:
+      type: sum
+      column: units_produced
+    dimensions:
+      - name: production_date
+        type: time
+        grain: day
+    time_spine:
+      model: ref('dim_manufacturing_calendar')
+      columns:
+        manufacturing_date: mfg_date
+        manufacturing_week: mfg_week
+        manufacturing_shift: shift
+        
+# Cumulative metrics automatically use time spine
+  - name: cumulative_sales
+    description: "Running total of sales"
+    type: cumulative
+    measure:
+      source: fct_orders
+      type: sum
+      column: order_total
+    grain_to_date: month
+    window: unbounded
+    time_spine: default  # Ensures no gaps in cumulative calculation
+    
+# Time comparison metrics need proper time spine
+  - name: revenue_wow
+    description: "Week over week revenue comparison"
+    type: time_comparison
+    metric: daily_revenue  # References base metric
+    comparison:
+      period: week
+      interval: 1
+    time_spine: default  # Inherits from base metric
+    
+# Advanced: Multiple time dimensions with different spines
+  - name: order_fulfillment_time
+    description: "Time from order to fulfillment"
+    type: simple
+    source: fct_orders
+    measure:
+      type: average
+      column: fulfillment_hours
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        time_spine: default
+      - name: ship_date
+        type: time
+        grain: day
+        time_spine: default
+      - name: fiscal_period
+        type: time
+        grain: month
+        time_spine: fiscal
+        
+# Semantic model with time spine configuration
+semantic_models:
+  - name: orders_timeseries
+    description: "Orders with complete time spine"
+    source: fct_orders
+    time_spine_table_configurations:
+      - location: ref('dim_date')
+        column_name: date_day
+        grain: day
+      - location: ref('dim_fiscal_calendar')
+        column_name: fiscal_date
+        grain: day
+        meta:
+          calendar_type: fiscal

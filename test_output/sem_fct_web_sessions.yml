@@ -1,0 +1,17 @@
+semantic_models:
+- description: Semantic model for fct_web_sessions
+  dimensions:
+  - name: date_day
+    type: time
+    type_params:
+      time_granularity: day
+  entities:
+  - expr: fct_web_sessions_id
+    name: id
+    type: primary
+  measures:
+  - agg: average
+    expr: session_count
+    name: weekly_moving_average_sessions_measure
+  model: ref('fct_web_sessions')
+  name: sem_fct_web_sessions

@@ -1,0 +1,223 @@
+# Example: Window Functions in Measures
+# Advanced analytics with window functions
+
+version: 2
+
+metrics:
+  # Moving average
+  - name: revenue_7d_moving_avg
+    description: "7-day moving average of revenue"
+    type: simple
+    source: fct_orders
+    measure:
+      type: window
+      column: order_total
+      window_function: "AVG({{ column }}) OVER (ORDER BY order_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)"
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        
+  # Rank within partition
+  - name: customer_revenue_rank
+    description: "Customer rank by revenue within their segment"
+    type: simple
+    source: fct_customer_summary
+    measure:
+      type: window
+      column: total_revenue
+      window_function: "RANK() OVER (PARTITION BY customer_segment ORDER BY {{ column }} DESC)"
+    dimensions:
+      - name: customer_segment
+        type: categorical
+      - name: customer_id
+        type: categorical
+        
+  # Percentile rank
+  - name: order_value_percentile
+    description: "Percentile rank of order values"
+    type: simple
+    source: fct_orders
+    measure:
+      type: window
+      column: order_total
+      window_function: "PERCENT_RANK() OVER (ORDER BY {{ column }})"
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        
+  # Lead/Lag functions
+  - name: revenue_vs_previous_period
+    description: "Revenue compared to previous period"
+    type: simple
+    source: fct_daily_summary
+    measure:
+      type: window
+      column: daily_revenue
+      window_function: |
+        {{ column }} - LAG({{ column }}, 1, 0) OVER (ORDER BY date_day)
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+        
+  # Cumulative sum with window
+  - name: cumulative_revenue_by_month
+    description: "Running total of revenue within each month"
+    type: simple
+    source: fct_orders
+    measure:
+      type: window
+      column: order_total
+      window_function: |
+        SUM({{ column }}) OVER (
+          PARTITION BY DATE_TRUNC('month', order_date) 
+          ORDER BY order_date 
+          ROWS UNBOUNDED PRECEDING
+        )
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        
+  # Dense rank for deduplication
+  - name: latest_customer_order
+    description: "Most recent order per customer"
+    type: simple
+    source: fct_orders
+    measure:
+      type: window
+      column: order_id
+      window_function: |
+        CASE 
+          WHEN DENSE_RANK() OVER (PARTITION BY customer_id ORDER BY order_date DESC) = 1 
+          THEN {{ column }}
+          ELSE NULL 
+        END
+      # Additional aggregation after window function
+      aggregation: count_distinct
+    dimensions:
+      - name: customer_segment
+        type: categorical
+        
+  # First/Last value windows
+  - name: first_purchase_channel
+    description: "Channel of customer's first purchase"
+    type: simple
+    source: fct_orders
+    measure:
+      type: window
+      column: sales_channel
+      window_function: |
+        FIRST_VALUE({{ column }}) OVER (
+          PARTITION BY customer_id 
+          ORDER BY order_date 
+          ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        )
+      aggregation: max  # To collapse to single value per customer
+    dimensions:
+      - name: customer_id
+        type: categorical
+        
+  # Complex window with frame clause
+  - name: revenue_share_of_segment
+    description: "Revenue as percentage of segment total"
+    type: simple
+    source: fct_customer_summary
+    measure:
+      type: window
+      column: customer_revenue
+      window_function: |
+        {{ column }} / NULLIF(
+          SUM({{ column }}) OVER (PARTITION BY customer_segment), 
+          0
+        ) * 100
+    dimensions:
+      - name: customer_segment
+        type: categorical
+      - name: customer_tier
+        type: categorical
+        
+  # Window function with custom frame
+  - name: orders_next_7_days
+    description: "Count of orders in the next 7 days"
+    type: simple
+    source: fct_daily_summary
+    measure:
+      type: window
+      column: order_count
+      window_function: |
+        SUM({{ column }}) OVER (
+          ORDER BY date_day 
+          ROWS BETWEEN CURRENT ROW AND 6 FOLLOWING
+        )
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+        
+  # Nth value window function
+  - name: median_order_value_by_segment
+    description: "Approximate median using nth_value"
+    type: simple
+    source: fct_orders
+    measure:
+      type: window
+      column: order_total
+      window_function: |
+        NTH_VALUE({{ column }}, 
+          CAST(COUNT(*) OVER (PARTITION BY customer_segment) / 2 AS INT)
+        ) OVER (
+          PARTITION BY customer_segment 
+          ORDER BY {{ column }}
+          ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        )
+      aggregation: max  # Collapse to single value
+    dimensions:
+      - name: customer_segment
+        type: categorical
+        
+# Advanced: Window functions in ratio metrics
+  - name: revenue_contribution_ratio
+    description: "Customer revenue as ratio of segment total"
+    type: ratio
+    numerator:
+      source: fct_customer_summary
+      measure:
+        type: sum
+        column: customer_revenue
+    denominator:
+      source: fct_customer_summary
+      measure:
+        type: window
+        column: customer_revenue
+        window_function: |
+          SUM({{ column }}) OVER (PARTITION BY customer_segment)
+        aggregation: max
+    dimensions:
+      - name: customer_segment
+        type: categorical
+      - name: customer_id
+        type: categorical
+        
+# Window function configuration
+window_function_config:
+  default_null_treatment: IGNORE NULLS
+  default_frame: ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+  
+  # Named window definitions for reuse
+  window_definitions:
+    trailing_7_days:
+      order_by: order_date
+      frame: ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+      
+    month_to_date:
+      partition_by: DATE_TRUNC('month', order_date)
+      order_by: order_date
+      frame: ROWS UNBOUNDED PRECEDING
+      
+    customer_history:
+      partition_by: customer_id
+      order_by: order_date
+      frame: ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING

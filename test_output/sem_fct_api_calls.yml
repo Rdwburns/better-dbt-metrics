@@ -1,0 +1,21 @@
+semantic_models:
+- description: Semantic model for fct_api_calls
+  dimensions:
+  - name: endpoint
+    type: categorical
+  - name: hour_of_day
+    type: time
+    type_params:
+      time_granularity: hour
+  entities:
+  - expr: fct_api_calls_id
+    name: id
+    type: primary
+  measures:
+  - agg: percentile
+    agg_params:
+      percentile: 0.95
+    expr: response_time_ms
+    name: p95_response_time_measure
+  model: ref('fct_api_calls')
+  name: sem_fct_api_calls

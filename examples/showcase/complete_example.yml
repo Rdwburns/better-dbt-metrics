@@ -1,0 +1,210 @@
+# Complete Example: Showcasing All Features
+version: 2
+
+# Import reusable components (demonstrating import system)
+imports:
+  - ../templates/dimensions/temporal.yml as time
+  - ../templates/dimensions/customer.yml as customer
+
+# Define dimension groups (demonstrating DRY principle)
+dimension_groups:
+  standard_analysis:
+    description: "Common dimensions for analysis"
+    dimensions:
+      - $ref: time.daily
+      - $ref: customer.segment
+      - name: channel
+        type: categorical
+        label: "Sales Channel"
+      - name: product_category
+        type: categorical
+
+# Metrics showcasing all supported types
+
+metrics:
+  # 1. Simple Metrics with Advanced Aggregations
+  - name: total_orders
+    description: "Total number of orders"
+    type: simple
+    source: fct_orders
+    measure:
+      type: count
+      column: order_id
+    dimension_groups: [standard_analysis]
+
+  - name: median_order_value
+    description: "Median order value"
+    type: simple
+    source: fct_orders
+    measure:
+      type: median
+      column: order_total
+    dimensions:
+      - $ref: time.monthly
+      - $ref: customer.tier
+
+  - name: p90_delivery_time
+    description: "90th percentile delivery time"
+    type: simple
+    source: fct_deliveries
+    measure:
+      type: percentile
+      column: delivery_hours
+      percentile: 0.90
+    dimensions:
+      - name: delivery_region
+        type: categorical
+
+  # 2. Ratio Metrics
+  - name: cart_abandonment_rate
+    description: "Percentage of carts abandoned"
+    type: ratio
+    numerator:
+      source: fct_carts
+      measure:
+        type: count
+        column: cart_id
+        filters:
+          - "status = 'abandoned'"
+    denominator:
+      source: fct_carts
+      measure:
+        type: count
+        column: cart_id
+    dimension_groups: [standard_analysis]
+
+  - name: repeat_customer_rate
+    description: "Percentage of customers who made repeat purchases"
+    type: ratio
+    numerator:
+      source: fct_customers
+      measure:
+        type: count_distinct
+        column: customer_id
+        filters:
+          - "total_orders > 1"
+    denominator:
+      source: fct_customers
+      measure:
+        type: count_distinct
+        column: customer_id
+    dimensions:
+      - $ref: time.quarterly
+
+  # 3. Derived Metrics
+  - name: average_order_value
+    description: "Average revenue per order"
+    type: derived
+    expression: "metric('total_revenue') / metric('total_orders')"
+    dimension_groups: [standard_analysis]
+
+  - name: customer_lifetime_value
+    description: "Average lifetime value per customer"
+    type: derived
+    expression: "metric('total_revenue') / metric('unique_customers') * metric('repeat_customer_rate')"
+    dimensions:
+      - $ref: customer.cohort
+
+  # 4. Cumulative Metrics
+  - name: running_total_revenue
+    description: "Cumulative revenue over time"
+    type: cumulative
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    window: unbounded
+    grain_to_date: day
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+
+  - name: mtd_active_users
+    description: "Month-to-date active users"
+    type: cumulative
+    source: fct_user_activity
+    entity: user_id  # Explicit entity for proper aggregation
+    measure:
+      type: count_distinct
+      column: user_id
+    window: month
+    grain_to_date: day
+    dimensions:
+      - name: activity_date
+        type: time
+        grain: day
+
+  # 5. Conversion Metrics
+  - name: signup_to_purchase_conversion
+    description: "Conversion from signup to first purchase"
+    type: conversion
+    base_measure:
+      source: fct_events
+      measure:
+        type: count_distinct
+        column: user_id
+        filters:
+          - "event_type = 'signup'"
+    conversion_measure:
+      source: fct_events
+      measure:
+        type: count_distinct
+        column: user_id
+        filters:
+          - "event_type = 'first_purchase'"
+    entity: user_id
+    window: 30 days
+    dimensions:
+      - name: acquisition_channel
+        type: categorical
+      - name: signup_month
+        type: time
+        grain: month
+
+  - name: trial_to_paid_conversion
+    description: "Conversion from trial to paid subscription"
+    type: conversion
+    base_measure:
+      source: fct_subscriptions
+      measure:
+        type: count_distinct
+        column: account_id
+        filters:
+          - "subscription_type = 'trial'"
+    conversion_measure:
+      source: fct_subscriptions
+      measure:
+        type: count_distinct
+        column: account_id
+        filters:
+          - "subscription_type IN ('basic', 'premium', 'enterprise')"
+    entity: account_id
+    window: 14 days
+    dimensions:
+      - name: plan_type
+        type: categorical
+
+  # 6. Metrics Using Templates (if templates are defined)
+  # - name: product_revenue
+  #   template: revenue_base
+  #   parameters:
+  #     SOURCE_TABLE: fct_product_sales
+  #     AMOUNT_COLUMN: product_revenue
+  #   dimension_groups: [standard_analysis]
+
+# Additional metrics showcasing entity detection
+  - name: unique_visitors
+    description: "Count of unique visitors"
+    type: simple
+    source: fct_web_analytics
+    entity: visitor_id  # Will be detected in semantic model
+    measure:
+      type: count_distinct
+      column: visitor_id
+    dimensions:
+      - name: visit_date
+        type: time
+        grain: day
+      - name: traffic_source
+        type: categorical

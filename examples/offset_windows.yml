@@ -1,0 +1,235 @@
+# Example: Offset Windows for Cumulative Metrics
+# Compare metrics across different time periods
+
+version: 2
+
+metrics:
+  # Basic cumulative with offset
+  - name: revenue_mtd_vs_last_month
+    description: "Month-to-date revenue compared to same period last month"
+    type: cumulative
+    measure:
+      source: fct_orders
+      type: sum
+      column: order_total
+    grain_to_date: day
+    window: month
+    offsets:
+      - period: month
+        offset: -1
+        alias: last_month_mtd
+      - period: month
+        offset: -12
+        alias: same_month_last_year
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        
+  # Cumulative with multiple offset windows
+  - name: cumulative_users_with_comparisons
+    description: "Cumulative active users with period comparisons"
+    type: cumulative
+    measure:
+      source: fct_user_activity
+      type: count_distinct
+      column: user_id
+    grain_to_date: day
+    window: unbounded
+    offsets:
+      - period: day
+        offset: -7
+        alias: week_ago
+      - period: day
+        offset: -30
+        alias: month_ago
+      - period: day
+        offset: -365
+        alias: year_ago
+    dimensions:
+      - name: activity_date
+        type: time
+        grain: day
+        
+  # Quarter-to-date with offset
+  - name: qtd_revenue_yoy
+    description: "Quarter-to-date revenue year-over-year"
+    type: cumulative
+    measure:
+      source: fct_orders
+      type: sum
+      column: revenue
+    grain_to_date: day
+    window: quarter
+    offsets:
+      - period: year
+        offset: -1
+        alias: qtd_last_year
+        # Additional calculations on offset
+        calculation: |
+          (current_value - offset_value) / NULLIF(offset_value, 0) * 100
+        calculation_alias: yoy_growth_percent
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        
+  # Trailing window with offset
+  - name: trailing_30d_revenue_comparison
+    description: "30-day trailing revenue with comparisons"
+    type: cumulative
+    measure:
+      source: fct_orders
+      type: sum
+      column: revenue
+    grain_to_date: day
+    window: 30  # 30-day trailing window
+    window_type: trailing
+    offsets:
+      - period: day
+        offset: -30
+        alias: previous_30d_period
+      - period: month
+        offset: -1
+        alias: same_window_last_month
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        
+  # Fiscal period cumulative with offset
+  - name: fiscal_ytd_with_offset
+    description: "Fiscal year-to-date with prior year comparison"
+    type: cumulative
+    measure:
+      source: fct_fiscal_orders
+      type: sum
+      column: revenue
+    grain_to_date: day
+    window: fiscal_year
+    time_spine: fiscal  # Use fiscal calendar
+    offsets:
+      - period: fiscal_year
+        offset: -1
+        alias: prior_fiscal_ytd
+    dimensions:
+      - name: fiscal_date
+        type: time
+        grain: day
+        
+  # Custom offset calculations
+  - name: weekly_active_users_growth
+    description: "Weekly active users with growth calculations"
+    type: cumulative
+    measure:
+      source: fct_user_activity
+      type: count_distinct
+      column: user_id
+    grain_to_date: day
+    window: week
+    offsets:
+      - period: week
+        offset: -1
+        alias: last_week
+        calculations:
+          - type: difference
+            alias: wow_change
+          - type: percent_change
+            alias: wow_growth_rate
+      - period: week
+        offset: -4
+        alias: four_weeks_ago
+        calculations:
+          - type: difference
+            alias: four_week_change
+          - type: percent_change
+            alias: four_week_growth_rate
+    dimensions:
+      - name: activity_date
+        type: time
+        grain: day
+        
+  # Complex offset with filters
+  - name: premium_revenue_cumulative_offset
+    description: "Premium customer revenue with offsets"
+    type: cumulative
+    measure:
+      source: fct_orders
+      type: sum
+      column: revenue
+      filters:
+        - "customer_tier = 'premium'"
+    grain_to_date: day
+    window: month
+    offsets:
+      - period: month
+        offset: -1
+        alias: last_month_premium
+        # Apply same filters to offset
+        inherit_filters: true
+      - period: month
+        offset: -1
+        alias: last_month_all
+        # Don't apply filters to this offset
+        inherit_filters: false
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        
+# Advanced configuration for offset windows
+offset_window_config:
+  default_null_handling: zero  # How to handle nulls in offset calculations
+  default_calculation_null_handling: null  # Return null vs 0 for calculations
+  
+  # Named offset patterns for reuse
+  offset_patterns:
+    standard_comparisons:
+      - period: day
+        offset: -1
+        alias: yesterday
+      - period: week
+        offset: -1
+        alias: last_week
+      - period: month
+        offset: -1
+        alias: last_month
+      - period: year
+        offset: -1
+        alias: last_year
+        
+    growth_analysis:
+      - period: month
+        offset: -1
+        alias: mom
+        calculations: [percent_change]
+      - period: quarter
+        offset: -1
+        alias: qoq
+        calculations: [percent_change]
+      - period: year
+        offset: -1
+        alias: yoy
+        calculations: [percent_change]
+
+# Use offset patterns in metrics
+metrics:
+  - name: revenue_with_standard_offsets
+    type: cumulative
+    measure:
+      source: fct_orders
+      type: sum
+      column: revenue
+    grain_to_date: day
+    window: month
+    offset_pattern: standard_comparisons
+    
+  - name: user_growth_metrics
+    type: cumulative
+    measure:
+      source: fct_users
+      type: count
+      column: user_id
+    grain_to_date: day
+    window: unbounded
+    offset_pattern: growth_analysis

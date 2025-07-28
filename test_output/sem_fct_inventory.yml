@@ -1,0 +1,21 @@
+semantic_models:
+- description: Semantic model for fct_inventory
+  dimensions:
+  - name: date_day
+    type: time
+    type_params:
+      time_granularity: day
+  - name: warehouse_id
+    type: categorical
+  - name: product_id
+    type: categorical
+  entities:
+  - expr: product_id
+    name: product_id
+    type: primary
+  measures:
+  - agg: max
+    expr: quantity_on_hand
+    name: daily_inventory_level_measure
+  model: ref('fct_inventory')
+  name: sem_fct_inventory

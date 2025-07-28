@@ -1,0 +1,95 @@
+# Revenue metric templates
+version: 2
+
+metric_templates:
+  revenue_base:
+    description: "Standard revenue metric template"
+    parameters:
+      - name: SOURCE_TABLE
+        type: string
+        required: true
+        description: "The fact table containing revenue data"
+      
+      - name: AMOUNT_COLUMN
+        type: string
+        default: "amount"
+        description: "The column containing the revenue amount"
+      
+      - name: STATUS_FILTER
+        type: string
+        default: "status = 'completed'"
+        description: "SQL filter for valid revenue"
+      
+      - name: CURRENCY_COLUMN
+        type: string
+        default: "currency"
+        description: "Column containing currency code"
+    
+    template:
+      source: "{{ SOURCE_TABLE }}"
+      measure:
+        type: sum
+        column: "{{ AMOUNT_COLUMN }}"
+        filters:
+          - "{{ STATUS_FILTER }}"
+      dimensions:
+        - name: currency
+          type: categorical
+          source: "{{ CURRENCY_COLUMN }}"
+  
+  revenue_with_tax:
+    description: "Revenue metric including tax calculations"
+    extends: revenue_base
+    parameters:
+      - name: TAX_RATE_COLUMN
+        type: string
+        default: "tax_rate"
+        description: "Column containing tax rate"
+    
+    template:
+      measure:
+        type: sum
+        expr: "{{ AMOUNT_COLUMN }} * (1 + {{ TAX_RATE_COLUMN }})"
+        filters:
+          - "{{ STATUS_FILTER }}"
+  
+  mrr_template:
+    description: "Monthly Recurring Revenue template"
+    parameters:
+      - name: SUBSCRIPTION_TABLE
+        type: string
+        required: true
+        description: "Table containing subscription data"
+      
+      - name: MRR_COLUMN
+        type: string
+        default: "monthly_amount"
+        description: "Column with monthly revenue amount"
+      
+      - name: ACTIVE_FILTER
+        type: string
+        default: "status = 'active'"
+        description: "Filter for active subscriptions"
+    
+    template:
+      source: "{{ SUBSCRIPTION_TABLE }}"
+      measure:
+        type: sum
+        column: "{{ MRR_COLUMN }}"
+        filters:
+          - "{{ ACTIVE_FILTER }}"
+          - "billing_period = 'monthly'"
+      validation:
+        - not_negative
+        - trend: { max_change: 20% }
+  
+  arr_template:
+    description: "Annual Recurring Revenue template"
+    extends: mrr_template
+    template:
+      measure:
+        type: sum
+        expr: "{{ MRR_COLUMN }} * 12"
+        filters:
+          - "{{ ACTIVE_FILTER }}"
+      label: "ARR"

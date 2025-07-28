@@ -1,0 +1,158 @@
+# Example: Validation Framework Demo
+# This file contains intentional errors to demonstrate validation
+
+version: 2
+
+# Import that doesn't exist (will be caught by validation)
+imports:
+  - ../templates/nonexistent.yml as missing
+
+metrics:
+  # Valid metric
+  - name: valid_revenue
+    description: "This metric is valid"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: revenue
+    dimensions:
+      - name: order_date
+        type: time
+        grain: day
+        
+  # Missing required field (name)
+  - description: "This metric is missing a name"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: revenue
+      
+  # Invalid metric type
+  - name: invalid_type_metric
+    type: complex  # Not a valid type
+    source: fct_orders
+    
+  # Invalid measure type
+  - name: invalid_measure
+    type: simple
+    source: fct_orders
+    measure:
+      type: total  # Not a valid measure type
+      column: amount
+      
+  # Missing required fields for ratio
+  - name: incomplete_ratio
+    type: ratio
+    # Missing numerator and denominator
+    
+  # Circular dependency
+  - name: metric_a
+    type: derived
+    expression: "metric('metric_b') + 1"
+    
+  - name: metric_b
+    type: derived
+    expression: "metric('metric_a') * 2"
+    
+  # Reference to non-existent metric
+  - name: bad_reference
+    type: simple
+    source: fct_orders
+    measure:
+      type: count
+      column: order_id
+    filter: "order_total > metric('does_not_exist')"
+    
+  # Invalid dimension type
+  - name: bad_dimension
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: revenue
+    dimensions:
+      - name: some_dim
+        type: spatial  # Not a valid dimension type
+        
+  # Time dimension without grain
+  - name: time_no_grain
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: revenue
+    dimensions:
+      - name: order_date
+        type: time
+        # Missing grain
+        
+  # Duplicate metric name
+  - name: valid_revenue  # Duplicate!
+    type: simple
+    source: fct_sales
+    measure:
+      type: sum
+      column: amount
+      
+  # Reference to unknown time spine
+  - name: bad_spine_ref
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: revenue
+    time_spine: unknown_spine
+    
+  # Self-reference in filter
+  - name: self_reference
+    type: simple
+    source: fct_orders
+    measure:
+      type: count
+      column: order_id
+    filter: "order_total > metric('self_reference')"
+    
+# Entity with invalid relationship
+entities:
+  - name: order
+    type: primary
+    column: order_id
+    relationships:
+      - type: many_to_one
+        to_entity: customer  # customer entity not defined
+        foreign_key: customer_id
+        
+  - name: product
+    type: primary
+    column: product_id
+    relationships:
+      - type: one_to_infinity  # Invalid relationship type
+        to_entity: category
+        foreign_key: category_id
+        
+# Time spine without required fields
+time_spine:
+  incomplete:
+    # Missing model
+    columns:
+      date_day: date_day
+      
+  no_columns:
+    model: ref('dim_date')
+    # Missing columns
+    
+# Template with unused parameter
+metric_templates:
+  unused_param_template:
+    parameters:
+      - name: SOURCE_TABLE
+        required: true
+      - name: UNUSED_PARAM  # This parameter is never used
+        required: false
+    template:
+      source: "{{ SOURCE_TABLE }}"
+      measure:
+        type: sum
+        column: amount

@@ -1,0 +1,89 @@
+# Standard temporal dimension groups
+version: 2
+
+dimension_groups:
+  daily:
+    description: "Standard daily time dimensions"
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+        expr: "DATE_TRUNC('day', {TIME_COLUMN})"
+        label: "Date"
+      
+      - name: date_week
+        type: time
+        grain: week
+        expr: "DATE_TRUNC('week', {TIME_COLUMN})"
+        label: "Week"
+      
+      - name: date_month
+        type: time
+        grain: month
+        expr: "DATE_TRUNC('month', {TIME_COLUMN})"
+        label: "Month"
+      
+      - name: date_quarter
+        type: time
+        grain: quarter
+        expr: "DATE_TRUNC('quarter', {TIME_COLUMN})"
+        label: "Quarter"
+      
+      - name: date_year
+        type: time
+        grain: year
+        expr: "DATE_TRUNC('year', {TIME_COLUMN})"
+        label: "Year"
+  
+  hourly:
+    description: "Hourly time dimensions (includes daily)"
+    extends: [daily]
+    dimensions:
+      - name: date_hour
+        type: time
+        grain: hour
+        expr: "DATE_TRUNC('hour', {TIME_COLUMN})"
+        label: "Hour"
+      
+      - name: hour_of_day
+        type: number
+        expr: "EXTRACT(hour FROM {TIME_COLUMN})"
+        label: "Hour of Day"
+      
+      - name: day_of_week
+        type: categorical
+        expr: "TO_CHAR({TIME_COLUMN}, 'Day')"
+        label: "Day of Week"
+  
+  fiscal:
+    description: "Fiscal calendar dimensions (April start)"
+    dimensions:
+      - name: fiscal_year
+        type: time
+        grain: year
+        expr: |
+          CASE 
+            WHEN EXTRACT(month FROM {TIME_COLUMN}) >= 4 
+            THEN EXTRACT(year FROM {TIME_COLUMN})
+            ELSE EXTRACT(year FROM {TIME_COLUMN}) - 1
+          END
+        label: "Fiscal Year"
+      
+      - name: fiscal_quarter
+        type: time
+        grain: quarter
+        expr: |
+          'FY' || 
+          CASE 
+            WHEN EXTRACT(month FROM {TIME_COLUMN}) >= 4 
+            THEN EXTRACT(year FROM {TIME_COLUMN})
+            ELSE EXTRACT(year FROM {TIME_COLUMN}) - 1
+          END ||
+          '-Q' ||
+          CASE
+            WHEN EXTRACT(month FROM {TIME_COLUMN}) BETWEEN 4 AND 6 THEN '1'
+            WHEN EXTRACT(month FROM {TIME_COLUMN}) BETWEEN 7 AND 9 THEN '2'
+            WHEN EXTRACT(month FROM {TIME_COLUMN}) BETWEEN 10 AND 12 THEN '3'
+            ELSE '4'
+          END
+        label: "Fiscal Quarter"

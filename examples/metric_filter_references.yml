@@ -1,0 +1,112 @@
+# Example: Metric References in Filters
+# This example demonstrates how to use metric values as dynamic thresholds in filters
+
+version: 2
+
+metrics:
+  # Base metrics for calculating thresholds
+  - name: average_order_value
+    description: "Average value of all orders"
+    type: simple
+    source: fct_orders
+    measure:
+      type: average
+      column: order_total
+    dimensions:
+      - name: date_month
+        type: time
+        grain: month
+        
+  - name: order_value_stddev
+    description: "Standard deviation of order values"
+    type: simple
+    source: fct_orders
+    measure:
+      type: stddev
+      column: order_total
+      
+  # Metrics using other metrics as filter thresholds
+  - name: high_value_orders
+    description: "Orders above the average order value"
+    type: simple
+    source: fct_orders
+    measure:
+      type: count
+      column: order_id
+    filter: "order_total > metric('average_order_value')"
+    dimensions:
+      - name: customer_segment
+        type: categorical
+      - name: sales_channel
+        type: categorical
+        
+  - name: premium_orders
+    description: "Orders that are 2x the average or more"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    filter: "order_total >= 2 * metric('average_order_value')"
+    
+  - name: outlier_orders
+    description: "Orders that are statistical outliers (>2 std dev from mean)"
+    type: simple
+    source: fct_orders
+    measure:
+      type: count
+      column: order_id
+    filter: |
+      order_total > (metric('average_order_value') + 2 * metric('order_value_stddev'))
+      OR order_total < (metric('average_order_value') - 2 * metric('order_value_stddev'))
+      
+  # Example with measure-level filters
+  - name: revenue_above_target
+    description: "Revenue from orders above a dynamic target"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+      filters:
+        - "order_total > metric('monthly_target')"
+        - "order_status = 'completed'"
+    dimensions:
+      - name: date_month
+        type: time
+        grain: month
+        
+  - name: monthly_target
+    description: "Monthly revenue target (could be from a config table)"
+    type: simple
+    source: dim_targets
+    measure:
+      type: max
+      column: revenue_target
+      filters:
+        - "target_type = 'revenue'"
+        
+  # Complex example: Customer segmentation based on dynamic thresholds
+  - name: vip_customer_orders
+    description: "Orders from customers whose average order exceeds the overall P75"
+    type: simple
+    source: fct_orders
+    measure:
+      type: count
+      column: order_id
+    filter: |
+      customer_id IN (
+        SELECT customer_id 
+        FROM fct_orders 
+        GROUP BY customer_id
+        HAVING AVG(order_total) > metric('order_value_p75')
+      )
+      
+  - name: order_value_p75
+    description: "75th percentile of order values"
+    type: simple
+    source: fct_orders
+    measure:
+      type: percentile
+      column: order_total
+      percentile: 0.75

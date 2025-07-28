@@ -1,0 +1,28 @@
+# Example: Basic workflow for Better-DBT-Metrics
+# Place this in .github/workflows/metrics.yml in your repository
+
+name: Compile Metrics
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'metrics/**'
+      - 'templates/**'
+  pull_request:
+    paths:
+      - 'metrics/**'
+      - 'templates/**'
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Compile Better-DBT-Metrics
+        uses: rdwburns/better-dbt-metrics@v2
+        with:
+          metrics-dir: 'metrics/'
+          output-dir: 'models/semantic/'
+          template-dirs: 'templates/'
