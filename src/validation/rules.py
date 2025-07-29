@@ -48,7 +48,8 @@ class RequiredFieldsRule(ValidationRule):
                     message="Metric missing required field: name"
                 ))
                 
-            if not metric.get('type'):
+            # Skip type validation for templated metrics
+            if not metric.get('type') and not is_templated_metric(metric):
                 result.add_error(ValidationError(
                     file_path=str(file_path),
                     message=f"Metric '{metric.get('name', 'unknown')}' missing required field: type"
@@ -339,11 +340,21 @@ class TemplateParameterRule(ValidationRule):
         # Check template definitions
         for name, template in data.get('metric_templates', {}).items():
             params = template.get('parameters', [])
-            required_params = {p['name'] for p in params if p.get('required', False)}
             
+            # Convert params to normalized format
+            normalized_params = []
+            required_params = set()
+            for param in params:
+                if isinstance(param, str):
+                    normalized_params.append({'name': param, 'required': False})
+                elif isinstance(param, dict):
+                    normalized_params.append(param)
+                    if param.get('required', False):
+                        required_params.add(param['name'])
+                        
             # Check that template body uses parameters
             template_str = str(template.get('template', {}))
-            for param in params:
+            for param in normalized_params:
                 param_name = param['name']
                 if f"{{{{{param_name}}}}}" not in template_str and f"$({param_name})" not in template_str:
                     result.add_warning(ValidationError(

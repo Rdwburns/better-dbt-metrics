@@ -319,24 +319,10 @@ class BetterDBTParser:
             
         # Handle template with parameters
         if 'template' in metric:
-            template_ref = metric['template']
-            template = self._resolve_reference(template_ref, 'ref')
-            if not isinstance(template, dict):
-                raise ValueError(f"Template must be a dict, got {type(template)}")
-                
-            # Apply template parameters
-            if 'params' in metric or 'parameters' in metric:
-                params = metric.get('params', metric.get('parameters', {}))
-                template_str = yaml.dump(template)
-                
-                # Simple variable substitution
-                for key, value in params.items():
-                    template_str = template_str.replace(f'{{{{{key}}}}}', str(value))
-                    template_str = template_str.replace(f'$({key})', str(value))
-                    
-                template = yaml.safe_load(template_str)
-                
-            result.update(deepcopy(template))
+            # Don't try to resolve template references - leave them for the compiler
+            # Just copy the metric as-is with the template field
+            result.update(deepcopy(metric))
+            return result
             
         # Apply metric's own properties (override inherited)
         for key, value in metric.items():

@@ -401,14 +401,25 @@ class PreCompilationValidator:
             return
             
         name = metric['name']
-        metric_type = metric.get('type', 'simple')
         
-        # Validate metric type
-        valid_types = {'simple', 'ratio', 'derived', 'cumulative', 'conversion'}
-        if metric_type not in valid_types:
-            self.error_collector.add_error(
-                ErrorFactory.invalid_metric_type(name, metric_type, file_path)
-            )
+        # Check if this is a templated metric
+        template_fields = ['template', 'extends', '$use', '$ref']
+        is_templated = any(field in metric for field in template_fields)
+        
+        # Get metric type - skip type validation for templated metrics
+        metric_type = metric.get('type', 'simple' if not is_templated else None)
+        
+        # Validate metric type (skip for templated metrics)
+        if metric_type and not is_templated:
+            valid_types = {'simple', 'ratio', 'derived', 'cumulative', 'conversion'}
+            if metric_type not in valid_types:
+                self.error_collector.add_error(
+                    ErrorFactory.invalid_metric_type(name, metric_type, file_path)
+                )
+                return
+                
+        # Skip type-specific validation for templated metrics
+        if is_templated:
             return
             
         # Type-specific validation
@@ -432,14 +443,19 @@ class PreCompilationValidator:
         
     def _validate_simple_metric(self, metric: Dict[str, Any], name: str, file_path: Path):
         """Validate simple metric structure"""
+        # Skip validation for templated metrics
+        template_fields = ['template', 'extends', '$use', '$ref']
+        if any(field in metric for field in template_fields):
+            return
+            
         # Check for source
-        if 'source' not in metric and '$use' not in metric:
+        if 'source' not in metric:
             self.error_collector.add_error(
                 ErrorFactory.missing_required_field('source', name, 'simple', file_path)
             )
             
         # Check for measure
-        if 'measure' not in metric and '$use' not in metric:
+        if 'measure' not in metric:
             self.error_collector.add_error(
                 ErrorFactory.missing_required_field('measure', name, 'simple', file_path)
             )

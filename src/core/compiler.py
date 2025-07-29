@@ -160,6 +160,9 @@ class BetterDBTCompiler:
         # Parse file with imports and references
         parsed_data = self.parser.parse_file(str(file_path))
         
+        if self.config.debug and 'metrics' in parsed_data:
+            print(f"[DEBUG] Raw parsed metrics: {parsed_data['metrics']}")
+        
         # Validate version
         if parsed_data.get('version') not in [1, 2]:
             raise ValueError(f"Unsupported version: {parsed_data.get('version')}")
@@ -169,6 +172,11 @@ class BetterDBTCompiler:
         
         # Register templates from imported files
         self._register_imported_templates()
+        
+        # Register templates from current file
+        if 'metric_templates' in parsed_data:
+            for name, template_def in parsed_data['metric_templates'].items():
+                self.templates.engine.register_template(name, template_def)
             
         # Register dimension groups from this file
         if 'dimension_groups' in parsed_data:
@@ -503,6 +511,41 @@ class BetterDBTCompiler:
         
     def _expand_metric_template(self, metric_def: Dict[str, Any]) -> Dict[str, Any]:
         """Expand metric that uses template or extends"""
+        # Handle 'template' field
+        if 'template' in metric_def:
+            template_ref = metric_def['template']
+            params = metric_def.get('parameters', metric_def.get('params', {}))
+            
+            if self.config.debug:
+                print(f"[DEBUG] Expanding template: {template_ref}")
+                print(f"[DEBUG] Parameters: {params}")
+            
+            # Extract template name from reference like "templates.revenue_metric"
+            if '.' in template_ref:
+                parts = template_ref.split('.')
+                template_name = parts[-1]
+            else:
+                template_name = template_ref
+            
+            try:
+                expanded = self.templates.expand(template_name, params)
+                if self.config.debug:
+                    print(f"[DEBUG] Template expanded successfully")
+                    print(f"[DEBUG] Expanded keys: {list(expanded.keys())}")
+                    print(f"[DEBUG] Expanded content: {expanded}")
+            except Exception as e:
+                if self.config.debug:
+                    print(f"[DEBUG] Template expansion failed: {e}")
+                # Template might not be found, return as-is
+                return metric_def
+            
+            # Merge with metric definition (metric fields override template)
+            for key, value in metric_def.items():
+                if key not in ['template', 'parameters', 'params']:
+                    expanded[key] = value
+                    
+            return expanded
+            
         # Handle $use (similar to template but with dot notation)
         if '$use' in metric_def:
             template_ref = metric_def['$use']
@@ -529,6 +572,7 @@ class BetterDBTCompiler:
                 if self.config.debug:
                     print(f"[DEBUG] Template expanded successfully")
                     print(f"[DEBUG] Expanded keys: {list(expanded.keys())}")
+                    print(f"[DEBUG] Expanded content: {expanded}")
             except Exception as e:
                 if self.config.debug:
                     print(f"[DEBUG] Template expansion failed: {e}")
