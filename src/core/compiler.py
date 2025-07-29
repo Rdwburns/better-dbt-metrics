@@ -12,6 +12,7 @@ from copy import deepcopy
 from core.parser import BetterDBTParser
 from features.templates import TemplateLibrary
 from features.dimension_groups import DimensionGroupManager
+from core.config_loader import ConfigLoader, BDMConfig
 
 
 @dataclass
@@ -36,7 +37,22 @@ class BetterDBTCompiler:
     
     def __init__(self, config: CompilerConfig):
         self.config = config
-        self.parser = BetterDBTParser(base_dir=".", debug=config.debug)
+        
+        # Load BDM configuration
+        config_loader = ConfigLoader()
+        self.bdm_config = config_loader.load_config(base_dir=config.input_dir)
+        
+        # Apply BDM config to compiler config if not overridden
+        if not config.output_dir or config.output_dir == "models/semantic/":
+            config.output_dir = self.bdm_config.output_dir
+        if not config.template_dirs or config.template_dirs == ["templates/"]:
+            config.template_dirs = [self.bdm_config.template_dir]
+            
+        self.parser = BetterDBTParser(
+            base_dir=".", 
+            debug=config.debug,
+            import_mappings=self.bdm_config.import_mappings
+        )
         self.templates = TemplateLibrary(config.template_dirs)
         self.dimension_groups = DimensionGroupManager()
         
@@ -46,6 +62,7 @@ class BetterDBTCompiler:
         self.metrics_by_source: Dict[str, List[Dict]] = {}
         self.entities: Dict[str, Dict[str, Any]] = {}  # Store entity definitions
         self.entity_sets: Dict[str, Dict[str, Any]] = {}  # Store entity set definitions
+        self.current_file: Optional[Path] = None  # Track current file for domain detection
         self.time_spines: Dict[str, Dict[str, Any]] = {}  # Store time spine configurations
         self.join_paths: List[Dict[str, Any]] = []  # Store join path definitions
         self.join_path_aliases: Dict[str, Dict[str, Any]] = {}  # Store join path aliases
@@ -114,6 +131,9 @@ class BetterDBTCompiler:
         """Compile a single metrics file"""
         if self.config.debug:
             print(f"\n[DEBUG] === Compiling file: {file_path} ===")
+        
+        # Track current file for domain detection
+        self.current_file = file_path
         
         # Parse file with imports and references
         parsed_data = self.parser.parse_file(str(file_path))
@@ -213,7 +233,7 @@ class BetterDBTCompiler:
             self.metrics_by_source[source].append(compiled_metric)
             
             # Generate auto-variants after the main metric is added
-            if self.config.auto_variants and 'auto_variants' in compiled_metric:
+            if self.config.auto_variants and self.bdm_config.expand_auto_variants and 'auto_variants' in compiled_metric:
                 self._generate_auto_variants(compiled_metric)
             
         return parsed_data
@@ -339,6 +359,15 @@ class BetterDBTCompiler:
             'type': metric_def.get('type', 'simple'),
             'label': metric_def.get('label', metric_def['name'].replace('_', ' ').title())
         }
+        
+        # Apply validation rules from config
+        if self.bdm_config.require_descriptions and not compiled['description']:
+            if self.config.debug:
+                print(f"[DEBUG] Warning: Metric '{compiled['name']}' missing description")
+                
+        if self.bdm_config.require_labels and compiled['label'] == compiled['name'].replace('_', ' ').title():
+            if self.config.debug:
+                print(f"[DEBUG] Warning: Metric '{compiled['name']}' using auto-generated label")
         
         # Process metric_time dimensions
         if 'dimensions' in metric_def:
@@ -709,6 +738,27 @@ class BetterDBTCompiler:
         """Generate automatic metric variants"""
         auto_config = metric.get('auto_variants', {})
         base_name = metric['name']
+        
+        # Check if metric belongs to a domain with specific settings
+        domain = None
+        if 'meta' in metric and 'domain' in metric['meta']:
+            domain = metric['meta']['domain']
+        elif '/' in str(self.current_file):
+            # Try to extract domain from file path
+            parts = str(self.current_file).split('/')
+            if 'metrics' in parts:
+                idx = parts.index('metrics')
+                if idx + 1 < len(parts):
+                    domain = parts[idx + 1]
+        
+        # Apply domain-specific auto-variants if configured
+        if domain and domain in self.bdm_config.domain_settings:
+            domain_config = self.bdm_config.domain_settings[domain]
+            if 'auto_variants' in domain_config:
+                # Merge domain auto-variants with metric auto-variants
+                for variant_type, variant_config in domain_config['auto_variants'].items():
+                    if variant_type not in auto_config:
+                        auto_config[variant_type] = variant_config
         
         # Time comparison variants
         if 'time_comparison' in auto_config:

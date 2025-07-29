@@ -37,13 +37,14 @@ class BetterDBTParser:
     - Variable substitution
     """
     
-    def __init__(self, base_dir: str = ".", debug: bool = False):
+    def __init__(self, base_dir: str = ".", debug: bool = False, import_mappings: Optional[Dict[str, str]] = None):
         self.base_dir = Path(base_dir)
         self.imports_cache: Dict[str, Any] = {}
         self.current_file: Optional[Path] = None
         self.import_stack: Set[str] = set()  # Prevent circular imports
         self.current_data: Dict[str, Any] = {}  # Store current file data for access by compiler
         self.debug = debug
+        self.import_mappings = import_mappings or {}  # Map import aliases to paths
         
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """Parse a better-dbt-metrics YAML file with all advanced features"""
@@ -137,6 +138,13 @@ class BetterDBTParser:
         
         if self.debug:
             print(f"[DEBUG] Attempting to import: {import_path} (from {base_dir})")
+        
+        # Check if import path matches any configured mappings
+        if import_path in self.import_mappings:
+            mapped_path = self.import_mappings[import_path]
+            if self.debug:
+                print(f"[DEBUG] Found import mapping: {import_path} -> {mapped_path}")
+            import_path = mapped_path
             
         # Resolve import paths - try multiple strategies
         full_path = None
