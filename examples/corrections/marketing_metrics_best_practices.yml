@@ -1,0 +1,120 @@
+# Corrected version following Better-DBT-Metrics best practices
+
+version: 2  # ✅ Correct version
+
+imports:
+  - ../_base/templates.yml as templates
+  - ../_base/dimension_groups.yml as dims
+  - ../_base/config.yml as config
+
+metrics:
+  # First metric: ROAS - properly structured ratio metric
+  - name: marketing_roas
+    label: Marketing ROAS
+    description: Return on advertising spend across all paid marketing channels in GBP
+    type: ratio
+    source: fct_marketing_attribution_enhanced  # ✅ Simplified source name
+    numerator:
+      # source: inherited from parent metric (can be omitted)
+      measure:
+        type: sum
+        column: attributed_revenue_gbp
+    denominator:
+      source: fct_consolidated_marketing_costs  # ✅ Different source, so specify
+      measure:
+        type: sum
+        column: total_spend_gbp
+    filter: channel_category != 'Organic'
+    dimensions:
+      - $ref: dims.marketing_dimensions_full  # ✅ Correct $ref syntax
+    auto_variants:
+      channel_splits:
+        - channel_category: Paid Search
+          label_suffix: _paid_search
+        - channel_category: Paid Social
+          label_suffix: _paid_social
+        - channel_category: Influencer
+          label_suffix: _influencer
+      time_comparisons:
+        - type: wow
+          label_suffix: _wow
+        - type: mom
+          label_suffix: _mom
+        - type: yoy
+          label_suffix: _yoy
+      territory_splits:
+        - territory: UK
+          label_suffix: _uk
+        - territory: CE
+          label_suffix: _ce
+        - territory: EE
+          label_suffix: _ee
+    format:  # ✅ Consistent format structure
+      type: decimal
+      decimal_places: 2
+      suffix: x
+    targets:
+      good: 3.0
+      acceptable: 2.0
+    meta:
+      category_name: Marketing Efficiency
+      is_private: false
+      business_criticality: 5
+      executive_dashboard: true
+      domain: Marketing Performance
+      optimization_target: true
+
+  # Second metric: CAC - using template properly
+  - name: customer_acquisition_cost
+    template: templates.marketing_efficiency_metric  # ✅ Correct template usage
+    parameters:  # ✅ Pass template parameters
+      metric_type: ratio
+      measure_column: total_spend_gbp
+      format_type: currency
+    # Override template values
+    label: Customer Acquisition Cost
+    description: Blended customer acquisition cost across all marketing channels in GBP
+    source: fct_marketing_attribution_enhanced
+    numerator:
+      source: fct_consolidated_marketing_costs
+      measure:
+        type: sum
+        column: total_spend_gbp
+    denominator:
+      measure:
+        type: sum
+        column: new_customers
+      filter: customer_type = 'New'
+    format:
+      type: currency
+      currency: GBP
+      decimal_places: 2
+    targets:
+      good: 25.0
+      acceptable: 40.0
+    meta:
+      category_name: Marketing Efficiency
+      is_private: false
+      business_criticality: 5
+      executive_dashboard: true
+      optimization_target: true
+
+  # Third metric: Revenue - simple metric with template
+  - name: marketing_attributed_revenue
+    template: templates.marketing_efficiency_metric  # ✅ Correct template usage
+    parameters:
+      metric_type: simple
+      measure_column: attributed_revenue_gbp
+      format_type: currency
+    label: Marketing Attributed Revenue
+    description: Total revenue attributed to marketing channels in GBP
+    source: fct_marketing_attribution_enhanced
+    format:
+      type: currency
+      currency: GBP
+      decimal_places: 0
+    meta:
+      category_name: Marketing Performance
+      is_private: false
+      business_criticality: 5
+      executive_dashboard: true

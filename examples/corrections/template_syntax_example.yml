@@ -1,0 +1,52 @@
+# Corrected version of your metric using proper template syntax
+
+version: 2
+
+metric_templates:
+  revenue_metric:
+    template:
+      type: simple
+      source: '{{ source_table | default("models.marts.core.fct_unified_orders") }}'
+      measure:
+        type: sum
+        column: '{{ revenue_column }}_gbp'
+      filter: '{{ base_filter | default("date >= \"2020-01-01\"") }}'
+      dimensions: 
+        - name: date
+          type: time
+          grain: day
+      auto_variants:
+        time_comparisons:
+          - type: wow
+            label_suffix: _wow
+          - type: mom
+            label_suffix: _mom
+          - type: yoy
+            label_suffix: _yoy
+      format:
+        type: currency
+        currency: GBP
+        decimal_places: 0
+      meta:
+        currency: GBP
+        category_name: '{{ category | default("Revenue") }}'
+        business_criticality: '{{ criticality | default(4) }}'
+        domain: Revenue
+
+metrics:
+  # CORRECTED: Using 'template:' instead of '$ref:'
+  - name: hero_product_revenue
+    label: Hero Product Revenue via Influencers
+    description: Revenue from hero products sold through influencer campaigns
+    template: templates.revenue_metric  # ✅ Correct syntax
+    parameters:  # or 'params:'
+      revenue_column: hero_product_revenue
+      source_table: fct_influencer_performance_unified_unified  # Pass as parameter
+      category: Influencer Marketing
+      criticality: 5
+    # These fields override template values
+    meta:
+      category_name: Influencer Marketing
+      is_private: false
+      business_criticality: 5
+      domain: Influencer Marketing
