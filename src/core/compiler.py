@@ -73,6 +73,12 @@ class BetterDBTCompiler:
             # Skip non-metrics files
             if yaml_file.name.startswith('_'):
                 continue
+            
+            # Skip configuration files
+            if yaml_file.name in ['bdm_config.yml', 'config.yml', 'dbt_project.yml']:
+                if self.config.debug:
+                    print(f"[DEBUG] Skipping configuration file: {yaml_file}")
+                continue
                 
             results['files_processed'] += 1
             try:

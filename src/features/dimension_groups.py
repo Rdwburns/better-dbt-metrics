@@ -48,9 +48,15 @@ class DimensionGroupManager:
         
     def register_group(self, name: str, group_def: Dict[str, Any]):
         """Register a dimension group"""
-        # Type safety check
-        if not isinstance(group_def, dict):
-            raise TypeError(f"Dimension group '{name}' definition must be a dictionary, got {type(group_def)}")
+        # Handle list format by converting to dict
+        if isinstance(group_def, list):
+            group_def = {
+                'name': name,
+                'dimensions': group_def,
+                'description': f'Dimension group: {name}'
+            }
+        elif not isinstance(group_def, dict):
+            raise TypeError(f"Dimension group '{name}' definition must be a dictionary or list, got {type(group_def)}")
             
         dimensions = []
         
