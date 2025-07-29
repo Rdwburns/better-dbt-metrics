@@ -163,26 +163,114 @@ class PreCompilationValidator:
             return
             
         # Validate structure
+        file_type = self._determine_file_type(data, file_path)
         self._validate_file_structure(data, file_path)
         
-        # Validate imports
-        if 'imports' in data:
-            self._validate_imports(data['imports'], file_path)
-            
-        # Validate metrics
-        if 'metrics' in data:
-            self._validate_metrics(data['metrics'], file_path)
-            
-        # Validate dimension groups
-        if 'dimension_groups' in data:
-            self._validate_dimension_groups(data['dimension_groups'], file_path)
-            
-        # Validate templates
-        if 'metric_templates' in data:
-            self._validate_templates(data['metric_templates'], file_path)
+        # Only validate metric-specific content for metric and template files
+        if file_type != 'config':
+            # Validate imports
+            if 'imports' in data:
+                self._validate_imports(data['imports'], file_path)
+                
+            # Validate metrics (only for metric files)
+            if 'metrics' in data:
+                self._validate_metrics(data['metrics'], file_path)
+                
+            # Validate dimension groups
+            if 'dimension_groups' in data:
+                self._validate_dimension_groups(data['dimension_groups'], file_path)
+                
+            # Validate templates
+            if 'metric_templates' in data or 'templates' in data:
+                if 'metric_templates' in data:
+                    self._validate_templates(data['metric_templates'], file_path)
+                if 'templates' in data:
+                    self._validate_templates(data['templates'], file_path)
             
     def _validate_file_structure(self, data: Dict[str, Any], file_path: Path):
         """Validate overall file structure"""
+        # Determine file type and appropriate validation
+        file_type = self._determine_file_type(data, file_path)
+        
+        if file_type == 'config':
+            self._validate_config_file_structure(data, file_path)
+        elif file_type == 'template':
+            self._validate_template_file_structure(data, file_path)
+        else:
+            self._validate_metric_file_structure(data, file_path)
+    
+    def _determine_file_type(self, data: Dict[str, Any], file_path: Path) -> str:
+        """Determine the type of YAML file based on content and name"""
+        filename = file_path.name.lower()
+        
+        # Configuration files
+        if filename in ['bdm_config.yml', 'bdm_config.yaml', 'config.yml', 'config.yaml']:
+            return 'config'
+        
+        # Template-only files (contain only templates, dimension groups, no metrics)
+        has_templates = 'metric_templates' in data or 'templates' in data
+        has_dimension_groups = 'dimension_groups' in data
+        has_metrics = 'metrics' in data
+        
+        if (has_templates or has_dimension_groups) and not has_metrics:
+            return 'template'
+            
+        return 'metric'
+    
+    def _validate_config_file_structure(self, data: Dict[str, Any], file_path: Path):
+        """Validate configuration file structure"""
+        # Check version
+        version = data.get('version')
+        if version not in [None, 1, 2]:
+            self.error_collector.add_error(
+                CompilationError(
+                    message=f"Unsupported version: {version}",
+                    category=ErrorCategory.CONFIGURATION,
+                    severity=ErrorSeverity.ERROR,
+                    file_path=file_path,
+                    suggestion="Use version 1 or 2, or omit the version field"
+                )
+            )
+        
+        # Config files have different valid keys
+        config_keys = {
+            'version', 'paths', 'imports', 'compilation', 'auto_variants',
+            'output', 'validation', 'domains', 'logging', 'meta'
+        }
+        unknown_keys = set(data.keys()) - config_keys
+        if unknown_keys:
+            self.error_collector.add_error(
+                CompilationError(
+                    message=f"Unknown configuration keys: {', '.join(unknown_keys)}",
+                    category=ErrorCategory.CONFIGURATION,
+                    severity=ErrorSeverity.WARNING,
+                    file_path=file_path,
+                    suggestion=f"Valid configuration keys are: {', '.join(sorted(config_keys))}"
+                )
+            )
+    
+    def _validate_template_file_structure(self, data: Dict[str, Any], file_path: Path):
+        """Validate template file structure"""
+        # Template files can have more flexible structure
+        template_keys = {
+            'version', 'imports', 'dimension_groups', 'metric_templates', 
+            'templates', 'meta', 'config', 'auto_variant_configurations',
+            'metadata_standards', 'categories', 'seasonal_periods', 'common_filters'
+        }
+        unknown_keys = set(data.keys()) - template_keys
+        if unknown_keys:
+            self.error_collector.add_error(
+                CompilationError(
+                    message=f"Unknown template file keys: {', '.join(unknown_keys)}",
+                    category=ErrorCategory.SYNTAX,
+                    severity=ErrorSeverity.WARNING,
+                    file_path=file_path,
+                    suggestion=f"Valid template file keys are: {', '.join(sorted(template_keys))}"
+                )
+            )
+    
+    def _validate_metric_file_structure(self, data: Dict[str, Any], file_path: Path):
+        """Validate metric definition file structure"""
         # Check version
         version = data.get('version')
         if version not in [None, 1, 2]:
@@ -196,7 +284,7 @@ class PreCompilationValidator:
                 )
             )
             
-        # Check for unknown top-level keys
+        # Check for unknown top-level keys in metric files
         valid_keys = {
             'version', 'imports', 'metrics', 'dimension_groups', 
             'metric_templates', 'meta', 'config'
