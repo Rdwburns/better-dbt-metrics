@@ -56,3 +56,30 @@ class ValidationResult:
         self.errors.extend(other.errors)
         self.warnings.extend(other.warnings)
         self.info.extend(other.info)
+    
+    def has_errors(self) -> bool:
+        """Check if there are any errors"""
+        return len(self.errors) > 0
+    
+    def print_summary(self):
+        """Print a summary of validation results"""
+        if self.errors:
+            print("\n🔴 ERRORS:")
+            for error in self.errors:
+                print(f"  {error}")
+                
+        if self.warnings:
+            print("\n🟡 WARNINGS:")
+            for warning in self.warnings:
+                print(f"  {warning}")
+                
+        if self.info:
+            print("\n🔵 INFO:")
+            for info in self.info:
+                print(f"  {info}")
+        
+        # Summary line
+        if self.errors or self.warnings:
+            print(f"\nSummary: {len(self.errors)} errors, {len(self.warnings)} warnings")
+        else:
+            print("\n✅ All validation checks passed")

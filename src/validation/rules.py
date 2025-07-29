@@ -596,6 +596,102 @@ class OffsetWindowValidationRule(ValidationRule):
         return result
 
 
+class ModelReferenceRule(ValidationRule):
+    """Validates that all model references point to actual dbt models"""
+    
+    def __init__(self):
+        from .dbt_scanner import DBTProjectScanner
+        self.scanner = None  # Initialize lazily
+    
+    def validate(self, data: Dict[str, Any], file_path: Path, validator: Any) -> ValidationResult:
+        result = ValidationResult()
+        
+        # Initialize scanner lazily
+        if self.scanner is None:
+            from .dbt_scanner import DBTProjectScanner
+            # Use the base directory from the validator's parser
+            base_dir = getattr(validator.parser, 'base_dir', Path('.'))
+            self.scanner = DBTProjectScanner(str(base_dir))
+        
+        # Check metrics for model references
+        for metric in data.get('metrics', []):
+            metric_name = metric.get('name', 'unknown')
+            
+            # Check main source reference
+            source = metric.get('source')
+            if source and source != 'derived':
+                is_valid, message = self.scanner.validate_model_reference(source)
+                if not is_valid:
+                    result.add_error(ValidationError(
+                        file_path=str(file_path),
+                        message=f"Metric '{metric_name}': {message}",
+                        suggestion="Create the model, update the reference, or use an existing model name"
+                    ))
+            
+            # Check ratio metric numerator/denominator sources
+            if metric.get('type') == 'ratio':
+                for component in ['numerator', 'denominator']:
+                    if component in metric and isinstance(metric[component], dict):
+                        comp_source = metric[component].get('source')
+                        if comp_source and comp_source != 'derived':
+                            is_valid, message = self.scanner.validate_model_reference(comp_source)
+                            if not is_valid:
+                                result.add_error(ValidationError(
+                                    file_path=str(file_path),
+                                    message=f"Ratio metric '{metric_name}' {component}: {message}",
+                                    suggestion="Create the model, update the reference, or use an existing model name"
+                                ))
+            
+            # Check dimensions with source references
+            for dim in metric.get('dimensions', []):
+                if isinstance(dim, dict) and 'source' in dim:
+                    dim_source = dim['source']
+                    dim_name = dim.get('name', 'unknown')
+                    if dim_source and dim_source != 'derived':
+                        is_valid, message = self.scanner.validate_model_reference(dim_source)
+                        if not is_valid:
+                            result.add_error(ValidationError(
+                                file_path=str(file_path),
+                                message=f"Metric '{metric_name}' dimension '{dim_name}': {message}",
+                                suggestion="Update dimension source to reference an existing model"
+                            ))
+        
+        # Check semantic models if they exist
+        for sem_model in data.get('semantic_models', []):
+            model_ref = sem_model.get('model', '')
+            sem_model_name = sem_model.get('name', 'unknown')
+            
+            # Extract model name from ref() calls
+            model_name = self._extract_model_from_ref(model_ref)
+            if model_name:
+                is_valid, message = self.scanner.validate_model_reference(model_name)
+                if not is_valid:
+                    result.add_error(ValidationError(
+                        file_path=str(file_path),
+                        message=f"Semantic model '{sem_model_name}': {message}",
+                        suggestion="Create the model or update the model reference"
+                    ))
+        
+        return result
+    
+    def _extract_model_from_ref(self, model_ref: str) -> Optional[str]:
+        """Extract model name from ref() expressions like "ref('model_name')" """
+        if not model_ref:
+            return None
+            
+        # Match ref('model_name') or ref("model_name")
+        import re
+        match = re.search(r"ref\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", model_ref)
+        if match:
+            return match.group(1)
+        
+        # If it's just a plain string, assume it's a model name
+        if isinstance(model_ref, str) and not model_ref.startswith('ref('):
+            return model_ref
+            
+        return None
+
+
 class MetricValidationRule(ValidationRule):
     """Base class for metric-specific validation rules"""
     pass

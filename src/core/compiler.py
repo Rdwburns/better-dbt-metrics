@@ -75,6 +75,25 @@ class BetterDBTCompiler:
         
         if not input_path.exists():
             raise ValueError(f"Input directory not found: {input_path}")
+        
+        # Run validation first if enabled
+        if self.config.validate:
+            if self.config.debug:
+                print("[DEBUG] Running pre-compilation validation...")
+            
+            from validation.validator import MetricsValidator
+            validator = MetricsValidator(str(input_path))
+            validation_result = validator.validate_directory(str(input_path))
+            
+            if validation_result.has_errors():
+                print("\n❌ Validation failed - metrics have errors that must be fixed:")
+                validation_result.print_summary()
+                raise ValueError("Cannot compile metrics with validation errors. Please fix the issues above.")
+            elif validation_result.warnings:
+                print("\n⚠️  Validation warnings (compilation will continue):")
+                validation_result.print_summary()
+            else:
+                print("✅ Validation passed - all metric references are valid")
             
         # Load dimension groups first
         self._load_dimension_groups()
@@ -84,7 +103,9 @@ class BetterDBTCompiler:
             'files_processed': 0,
             'metrics_compiled': 0,
             'models_generated': 0,
-            'errors': []
+            'errors': [],
+            'validation_errors': 0,
+            'skipped_metrics': []
         }
         
         for yaml_file in input_path.rglob("*.yml"):
@@ -208,6 +229,13 @@ class BetterDBTCompiler:
                         if 'dimensions' in metric:
                             print(f"[DEBUG] Dimensions type: {type(metric['dimensions'])}")
                             print(f"[DEBUG] Dimensions value: {metric['dimensions']}")
+                
+                # Validate individual metric before compilation
+                if self.config.validate and not self._validate_metric_models(metric):
+                    metric_name = metric.get('name', 'unknown')
+                    print(f"⚠️  Skipping metric '{metric_name}' due to invalid model references")
+                    # For individual file compilation, we'll just skip the metric
+                    continue
                 
                 compiled_metric = self._compile_metric(metric)
                 self.compiled_metrics.append(compiled_metric)
@@ -1660,3 +1688,49 @@ class BetterDBTCompiler:
                 
         except Exception as e:
             raise RuntimeError(f"Error writing output file: {e}")
+    
+    def _validate_metric_models(self, metric: Dict[str, Any]) -> bool:
+        """
+        Validate that all model references in a metric are valid.
+        Returns True if valid, False if invalid.
+        """
+        try:
+            from validation.dbt_scanner import DBTProjectScanner
+            
+            # Initialize scanner if not already done
+            if not hasattr(self, '_model_scanner'):
+                self._model_scanner = DBTProjectScanner(str(self.parser.base_dir))
+            
+            # Check main source reference
+            source = metric.get('source')
+            if source and source != 'derived':
+                is_valid, _ = self._model_scanner.validate_model_reference(source)
+                if not is_valid:
+                    return False
+            
+            # Check ratio metric numerator/denominator sources
+            if metric.get('type') == 'ratio':
+                for component in ['numerator', 'denominator']:
+                    if component in metric and isinstance(metric[component], dict):
+                        comp_source = metric[component].get('source')
+                        if comp_source and comp_source != 'derived':
+                            is_valid, _ = self._model_scanner.validate_model_reference(comp_source)
+                            if not is_valid:
+                                return False
+            
+            # Check dimensions with source references
+            for dim in metric.get('dimensions', []):
+                if isinstance(dim, dict) and 'source' in dim:
+                    dim_source = dim['source']
+                    if dim_source and dim_source != 'derived':
+                        is_valid, _ = self._model_scanner.validate_model_reference(dim_source)
+                        if not is_valid:
+                            return False
+            
+            return True
+            
+        except Exception as e:
+            if self.config.debug:
+                print(f"[DEBUG] Error validating metric models: {e}")
+            # If validation fails due to error, allow compilation to continue
+            return True

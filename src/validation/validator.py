@@ -20,7 +20,8 @@ from .rules import (
     TimeSpineValidationRule,
     MetricFilterReferencesRule,
     UniqueNamesRule,
-    OffsetWindowValidationRule
+    OffsetWindowValidationRule,
+    ModelReferenceRule
 )
 
 
@@ -46,7 +47,8 @@ class MetricsValidator:
             TimeSpineValidationRule(),
             MetricFilterReferencesRule(),
             UniqueNamesRule(),
-            OffsetWindowValidationRule()
+            OffsetWindowValidationRule(),
+            ModelReferenceRule()
         ]
         
         # Cache for parsed data
