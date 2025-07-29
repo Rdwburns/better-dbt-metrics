@@ -504,9 +504,21 @@ class BetterDBTCompiler:
                 if isinstance(dimension_groups, dict):
                     # Standard format: {name: definition}
                     for name, group_def in dimension_groups.items():
-                        if not isinstance(group_def, dict):
+                        # Handle case where group_def is just a list of dimensions
+                        if isinstance(group_def, list):
+                            # Convert list format to dict format
+                            group_def = {
+                                'name': name,
+                                'dimensions': group_def,
+                                'description': f'Dimension group: {name}'
+                            }
                             if self.config.debug:
-                                print(f"[DEBUG] Skipping invalid dimension group '{name}' - not a dict")
+                                print(f"[DEBUG] Converted list format for dimension group '{name}'")
+                        elif not isinstance(group_def, dict):
+                            if self.config.debug:
+                                print(f"[DEBUG] Skipping invalid dimension group '{name}' - not a dict or list")
+                                print(f"[DEBUG] Type: {type(group_def)}")
+                                print(f"[DEBUG] Value: {group_def}")
                             continue
                             
                         # Make a copy and adjust extends references if needed
