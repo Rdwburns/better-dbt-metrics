@@ -163,6 +163,14 @@ class BetterDBTCompiler:
         # Process metrics
         metrics = parsed_data.get('metrics', [])
         
+        if self.config.debug:
+            print(f"[DEBUG] Found {len(metrics)} metrics in file")
+            print(f"[DEBUG] Metrics type: {type(metrics)}")
+            if metrics and isinstance(metrics, list):
+                print(f"[DEBUG] First metric type: {type(metrics[0])}")
+                if isinstance(metrics[0], dict):
+                    print(f"[DEBUG] First metric keys: {list(metrics[0].keys())}")
+        
         for metric in metrics:
             try:
                 if self.config.debug:

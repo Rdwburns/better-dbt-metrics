@@ -141,24 +141,33 @@ class BetterDBTParser:
         # Resolve import paths - try multiple strategies
         full_path = None
         
-        # Strategy 1: Relative to current file's directory
-        if import_path.startswith('.'):
-            candidate = (base_dir / import_path[1:]).resolve()
-        else:
-            candidate = (base_dir / import_path).resolve()
-        
-        # Handle _base.templates style imports
-        if import_path.startswith('_base.'):
+        # Handle _base.templates style imports first
+        if import_path.startswith('_base.') or import_path.startswith('_base/'):
             # Convert _base.templates to _base/templates
-            import_path = import_path.replace('.', '/')
-            candidate = (base_dir / import_path).resolve()
-            
-        if not candidate.suffix:
-            candidate = candidate.with_suffix('.yml')
-            
-        if candidate.exists():
-            full_path = candidate
-        else:
+            normalized_path = import_path.replace('.', '/')
+            # Try multiple base paths for _base imports
+            for base in [base_dir, base_dir.parent, self.base_dir, self.base_dir / "metrics"]:
+                candidate = (base / normalized_path).resolve()
+                if not candidate.suffix:
+                    candidate = candidate.with_suffix('.yml')
+                if candidate.exists():
+                    full_path = candidate
+                    break
+        
+        if not full_path:
+            # Strategy 1: Relative to current file's directory
+            if import_path.startswith('.'):
+                candidate = (base_dir / import_path[1:]).resolve()
+            else:
+                candidate = (base_dir / import_path).resolve()
+                
+            if not candidate.suffix:
+                candidate = candidate.with_suffix('.yml')
+                
+            if candidate.exists():
+                full_path = candidate
+        
+        if not full_path:
             # Strategy 2: Relative to base directory
             candidate = (self.base_dir / import_path).resolve()
             if not candidate.suffix:
@@ -183,6 +192,11 @@ class BetterDBTParser:
                         break
         
         if not full_path:
+            if self.debug:
+                print(f"[DEBUG] Tried paths:")
+                print(f"[DEBUG]   - {candidate}")
+                for path in common_paths:
+                    print(f"[DEBUG]   - {path}")
             raise FileNotFoundError(f"Import file not found: {import_path}")
             
         # Load the imported file
