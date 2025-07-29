@@ -10,6 +10,15 @@ import re
 from .types import ValidationResult, ValidationError
 
 
+def is_templated_metric(metric: Dict[str, Any]) -> bool:
+    """
+    Check if a metric uses templates or references that need expansion.
+    These metrics should skip validation until after template expansion.
+    """
+    template_fields = ['template', 'extends', '$use', '$ref']
+    return any(field in metric for field in template_fields)
+
+
 class ValidationRule(ABC):
     """Base class for validation rules"""
     
@@ -27,6 +36,11 @@ class RequiredFieldsRule(ValidationRule):
         
         # Check metrics
         for metric in data.get('metrics', []):
+            # Skip validation for metrics that use templates or references
+            # These will be expanded later and should be validated after expansion
+            if is_templated_metric(metric):
+                continue
+                
             # Required fields for all metrics
             if not metric.get('name'):
                 result.add_error(ValidationError(
@@ -104,6 +118,10 @@ class ValidMetricTypeRule(ValidationRule):
         result = ValidationResult()
         
         for metric in data.get('metrics', []):
+            # Skip validation for templated metrics
+            if is_templated_metric(metric):
+                continue
+                
             metric_type = metric.get('type')
             if metric_type and metric_type not in self.VALID_TYPES:
                 result.add_error(ValidationError(
