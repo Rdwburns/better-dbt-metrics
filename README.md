@@ -81,6 +81,13 @@ better-dbt-metrics compile --input-dir metrics/ --output-dir models/semantic/
 
 ## 📚 Core Features (Built)
 
+### ✨ Recent Additions
+- **🤖 Smart Suggestions** - AI-powered metric suggestions from database schema
+- **📊 Metric Catalog** - Auto-generated searchable documentation with lineage
+- **🔍 Enhanced Error Handling** - Clear, actionable error messages with suggestions
+
+## 📚 Core Features (Built)
+
 ### 1. Import System
 
 Import and reuse components across files:
@@ -548,41 +555,65 @@ metrics:
     offset_pattern: standard_comparisons
 ```
 
-### 13. Validation Framework
+### 13. Enhanced Error Handling & Validation
 
-Catch errors before compilation with comprehensive validation:
+Comprehensive pre-compilation validation with clear, actionable error messages:
 
 ```bash
-# Run validation
-better-dbt-metrics validate --input-dir metrics/
+# Standard compilation with enhanced errors
+better-dbt-metrics compile
 
-# Validation checks include:
+# Verbose mode for detailed progress and debugging
+better-dbt-metrics compile --verbose
+
+# Different output formats for CI/CD
+better-dbt-metrics compile --report-format json
+better-dbt-metrics compile --report-format junit > results.xml
+
+# Pre-validation checks include:
+# ✓ YAML syntax with line numbers
 # ✓ Required fields (name, type, source, measures)
 # ✓ Valid metric types (simple, ratio, derived, cumulative, conversion)
-# ✓ Valid dimension and measure types
+# ✓ Reference resolution (imports, dimensions, templates)
 # ✓ Circular dependency detection
-# ✓ Reference resolution
-# ✓ Entity relationship validation
-# ✓ Template parameter validation
-# ✓ Duplicate name detection
-# ✓ Window function validation
-# ✓ Offset window validation
-# ✓ YAML syntax validation
+# ✓ Best practice recommendations
+# ✓ Naming convention validation
 ```
 
-Example validation output:
+Example enhanced error output:
 ```
-❌ Found 3 error(s):
-  metrics/revenue.yml:15 - error: Invalid metric type 'complex'
-    Suggestion: Valid types are: simple, ratio, derived, cumulative, conversion
-  metrics/revenue.yml:25 - error: Circular dependency detected involving metric 'metric_a'
-    Suggestion: Review metric dependencies and remove circular references
-  metrics/product.yml:10 - error: Metric 'revenue' defined in multiple files
-    Suggestion: Use unique metric names across all files
+============================================================
+📊 Better-DBT-Metrics Compilation Report
+============================================================
 
-⚠️  Found 2 warning(s):
-  metrics/orders.yml:30 - warning: Time dimension 'order_date' should specify a grain
-    Suggestion: Add grain: day, week, month, quarter, or year
+📋 Issues: ❌ 2 error(s) | ⚠️ 1 warning(s)
+
+❌ Errors (must fix):
+----------------------------------------
+
+1. ❌ ERROR: Cannot resolve reference: $ref: time.weekly
+  📍 Location: metrics/sales.yml
+  📊 Metric: weekly_revenue
+  💡 Suggestion: Ensure the dimension is imported and the reference path is correct.
+     Use '$ref:' for dimension references and '$use:' for template references.
+
+2. ❌ ERROR: Invalid metric type: 'percentage'
+  📍 Location: metrics/kpis.yml:15
+  📊 Metric: growth_rate
+  💡 Suggestion: Valid metric types are: simple, ratio, derived, cumulative, conversion
+
+⚠️ Warnings (should review):
+----------------------------------------
+
+1. ⚠️ WARNING: Missing description
+  📍 Location: metrics/finance.yml
+  📊 Metric: total_revenue
+  💡 Suggestion: Add a 'description' field to document the metric's purpose
+
+============================================================
+❌ Compilation failed with errors
+Please fix the errors above and try again
+============================================================
 ```
 
 ## 🤖 GitHub Actions Integration
@@ -662,24 +693,54 @@ See [examples/github-workflows/](examples/github-workflows/) for more workflow e
 
 ## 🔧 CLI Commands
 
+### Compilation
 ```bash
-# Compile metrics to dbt format
+# Basic compilation
 better-dbt-metrics compile --input-dir metrics/ --output-dir models/
 
-# Compile with custom template directory
-better-dbt-metrics compile -i metrics/ -o models/ -t templates/
+# With detailed progress and error information
+better-dbt-metrics compile --verbose
 
+# Skip pre-validation for faster compilation
+better-dbt-metrics compile --no-pre-validate
+
+# Output structured errors for CI/CD
+better-dbt-metrics compile --report-format json
+better-dbt-metrics compile --report-format junit > test-results.xml
+```
+
+### Smart Suggestions (New!)
+```bash
+# Analyze database schema and suggest metrics
+better-dbt-metrics suggest --schema-file schema.yml
+
+# Try with example e-commerce schema
+better-dbt-metrics suggest
+
+# Get only high-confidence suggestions
+better-dbt-metrics suggest --confidence high --output-file metrics.yml
+```
+
+### Metric Catalog (New!)
+```bash
+# Generate searchable metric documentation
+better-dbt-metrics catalog --input-dir metrics/ --output-dir docs/catalog/
+
+# Compact format for quick reference
+better-dbt-metrics catalog --format compact
+
+# Include search functionality (default)
+better-dbt-metrics catalog --include-search
+```
+
+### Validation & Utilities
+```bash
 # Validate metrics (catch errors before compilation)
 better-dbt-metrics validate --input-dir metrics/
 
-# Validate with detailed output
-better-dbt-metrics validate -v --fail-on-warning
-
-# List available templates
+# List available templates and dimension groups
 better-dbt-metrics list-templates
-
-# Initialize a new project
-better-dbt-metrics init
+better-dbt-metrics list-dimensions
 ```
 
 ## 📁 Project Structure
@@ -798,6 +859,9 @@ validation:
 See [FEATURE_STATUS.md](FEATURE_STATUS.md) for detailed feature tracking.
 
 ### Recently Completed ✅:
+- **🤖 Smart Suggestions** - Schema analysis and metric generation
+- **📊 Metric Catalog** - Interactive documentation with search and lineage
+- **🔍 Enhanced Error Handling** - Pre-validation and detailed error reporting
 - Join path configuration for complex data models
 - Window functions in measures  
 - Offset windows for cumulative metrics
@@ -805,10 +869,11 @@ See [FEATURE_STATUS.md](FEATURE_STATUS.md) for detailed feature tracking.
 - GitHub Action package
 
 ### Coming Soon:
+- **📚 Built-in Metric Library** - Pre-built templates for common business metrics
+- **⚡ Performance Optimization** - Query hints and materialization recommendations
+- **🧪 Testing Framework** - Automated metric validation and regression testing
 - Auto-generated metric variants (WoW, MoM, YoY)
-- Performance profiling and optimization
 - Direct BI tool integration (Tableau, Looker, PowerBI)
-- Metric catalog with auto-generated documentation
 - Change detection for incremental compilation
 
 ## 🤝 Contributing

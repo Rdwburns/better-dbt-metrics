@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Total Orders - Metric Catalog</title>
+    <style>
+        :root {
+            --primary-color: #1976D2;
+            --secondary-color: #4CAF50;
+            --background: #f5f5f5;
+            --card-background: white;
+            --text-primary: #333;
+            --text-secondary: #666;
+            --border-color: #e0e0e0;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: var(--text-primary);
+            background: var(--background);
+            margin: 0;
+            padding: 0;
+        }
+        
+        .header {
+            background: var(--card-background);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .nav {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+        
+        .nav-links a {
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        
+        .nav-links a:hover {
+            color: var(--primary-color);
+        }
+        
+        .search-link {
+            background: var(--primary-color);
+            color: white !important;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        
+        .search-link:hover {
+            background: #1565C0 !important;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+        
+        .content {
+            background: var(--card-background);
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: var(--text-primary);
+            border-bottom: 3px solid var(--primary-color);
+            padding-bottom: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        h2 {
+            color: var(--text-primary);
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+        
+        h3 {
+            color: var(--text-primary);
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+        
+        pre {
+            background: #f8f8f8;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        pre code {
+            background: transparent;
+            padding: 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        
+        th, td {
+            text-align: left;
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        th {
+            background: #f8f8f8;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        tr:hover {
+            background: #f8f8f8;
+        }
+        
+        a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        ul, ol {
+            margin: 1rem 0;
+            padding-left: 2rem;
+        }
+        
+        li {
+            margin: 0.5rem 0;
+        }
+        
+        .breadcrumb {
+            margin-bottom: 1rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+        
+        .breadcrumb a {
+            color: var(--text-secondary);
+        }
+        
+        .breadcrumb a:hover {
+            color: var(--primary-color);
+        }
+        
+        .metric-header {
+            background: #f8f8f8;
+            border-radius: 6px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .metric-meta {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .meta-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        
+        .meta-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        pre {
+            background: #2d2d2d;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 1rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+            color: #f8f8f2;
+        }
+        
+        pre code {
+            background: transparent;
+            padding: 0;
+            color: #f8f8f2;
+        }
+        
+        /* SQL Syntax Highlighting */
+        .keyword { color: #66d9ef; font-weight: bold; }
+        .function { color: #a6e22e; }
+        .string { color: #e6db74; }
+        .number { color: #ae81ff; }
+        .comment { color: #75715e; font-style: italic; }
+        .operator { color: #f92672; }
+        .identifier { color: #f8f8f2; }
+        .punctuation { color: #f8f8f2; }
+        
+        .related-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .related-metric-card {
+            background: #f8f8f8;
+            padding: 1rem;
+            border-radius: 6px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .related-metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .tags {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+        }
+        
+        .tag {
+            background: var(--primary-color);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.875rem;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 1rem;
+            }
+            
+            .content {
+                padding: 1rem;
+            }
+            
+            .nav-links {
+                gap: 1rem;
+                font-size: 0.9rem;
+            }
+            
+            .metric-meta {
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <nav class="nav">
+            <div class="nav-links">
+                <a href="../../index.html">📊 Catalog Home</a>
+                <a href="../../glossary.html">📚 Glossary</a>
+                <a href="../../dimensions/index.html">📐 Dimensions</a>
+            </div>
+            <div class="nav-links">
+                <a href="../../search.html" class="search-link">🔍 Search</a>
+            </div>
+        </nav>
+    </header>
+    
+    <div class="container">
+        <div class="content">
+            <div class="breadcrumb">
+                <a href="../../index.html">Home</a> / 
+                <a href="../../domains/orders.html">Orders</a> / 
+                <span>Total Orders</span>
+            </div>
+            
+            <h1>Total Orders</h1>
+            
+            <div class="metric-header">
+                <div class="metric-meta">
+                    <div class="meta-item">
+                        <span class="meta-label">Metric Name</span>
+                        <span class="meta-value"><code>total_orders</code></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Type</span>
+                        <span class="meta-value">simple</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Domain</span>
+                        <span class="meta-value">orders</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Source</span>
+                        <span class="meta-value"><code>fct_orders</code></span>
+                    </div>
+                </div>
+            </div>
+            
+            <h2>Description</h2>
+            
+            <p>Total number of orders placed in the system. This is a fundamental metric that tracks the volume of business transactions.</p>
+            
+            <h2>Business Context</h2>
+            
+            <p>The Total Orders metric is a key performance indicator (KPI) that measures business activity and growth. It's used to:</p>
+            <ul>
+                <li>Track sales volume trends</li>
+                <li>Identify seasonal patterns</li>
+                <li>Monitor campaign effectiveness</li>
+                <li>Set and track sales targets</li>
+            </ul>
+            
+            <h2>Technical Details</h2>
+            
+            <h3>Definition</h3>
+            
+            <ul>
+                <li><strong>Aggregation:</strong> count</li>
+                <li><strong>Column:</strong> <code>order_id</code></li>
+                <li><strong>Source Table:</strong> <code>fct_orders</code></li>
+            </ul>
+            
+            <h2>Available Dimensions</h2>
+            
+            <p>This metric can be analyzed by the following dimensions:</p>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Dimension</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="../../dimensions/order_date.html">order_date</a></td>
+                        <td>time</td>
+                        <td>Date when the order was placed</td>
+                    </tr>
+                    <tr>
+                        <td><a href="../../dimensions/customer_segment.html">customer_segment</a></td>
+                        <td>categorical</td>
+                        <td>Customer segmentation (Premium, Standard, etc.)</td>
+                    </tr>
+                    <tr>
+                        <td><a href="../../dimensions/channel.html">channel</a></td>
+                        <td>categorical</td>
+                        <td>Sales channel (Web, Mobile, Store)</td>
+                    </tr>
+                    <tr>
+                        <td><a href="../../dimensions/product_category.html">product_category</a></td>
+                        <td>categorical</td>
+                        <td>Product category classification</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <h2>SQL Examples</h2>
+            
+            <h3>Basic Query</h3>
+            
+            <pre><code class="sql"><span class="keyword">SELECT</span>
+  <span class="function">date_trunc</span>(<span class="string">'month'</span>, order_date) <span class="keyword">as</span> month,
+  <span class="function">COUNT</span>(order_id) <span class="keyword">as</span> total_orders
+<span class="keyword">FROM</span> fct_orders
+<span class="keyword">GROUP BY</span> <span class="number">1</span>
+<span class="keyword">ORDER BY</span> <span class="number">1</span>;</code></pre>
+            
+            <h3>Query with Dimension</h3>
+            
+            <pre><code class="sql"><span class="keyword">SELECT</span>
+  <span class="function">date_trunc</span>(<span class="string">'month'</span>, order_date) <span class="keyword">as</span> month,
+  channel,
+  <span class="function">COUNT</span>(order_id) <span class="keyword">as</span> total_orders
+<span class="keyword">FROM</span> fct_orders
+<span class="keyword">GROUP BY</span> <span class="number">1</span>, <span class="number">2</span>
+<span class="keyword">ORDER BY</span> <span class="number">1</span>, <span class="number">2</span>;</code></pre>
+            
+            <h2>Dependencies</h2>
+            
+            <p><em>This metric has no dependencies</em></p>
+            
+            <p>Metrics that depend on this one:</p>
+            
+            <ul>
+                <li><a href="../average_order_value.html">Average Order Value</a></li>
+                <li><a href="../orders_growth_rate.html">Orders Growth Rate</a></li>
+            </ul>
+            
+            <h2>Usage Examples</h2>
+            
+            <h3>dbt Metrics Query</h3>
+            
+            <pre><code class="sql"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> <span class="string">{{ metrics.calculate(
+    metric('total_orders'),
+    grain='month',
+    dimensions=['customer_segment']
+) }}</span></code></pre>
+            
+            <h3>Tableau Example</h3>
+            
+            <ol>
+                <li>Connect to the semantic model <code>sem_fct_orders</code></li>
+                <li>Drag the <code>Total Orders</code> metric to Rows</li>
+                <li>Drag <code>Order Date</code> to Columns (set to Month)</li>
+                <li>Add <code>Customer Segment</code> to Color</li>
+            </ol>
+            
+            <h3>Looker Example</h3>
+            
+            <pre><code class="lookml">measure: total_orders {
+  type: count
+  sql: ${order_id} ;;
+  drill_fields: [order_date, customer_segment, channel]
+}</code></pre>
+            
+            <h2>Related Metrics</h2>
+            
+            <p>Other metrics that share dimensions or context:</p>
+            
+            <div class="related-metrics">
+                <a href="../average_order_value.html" class="related-metric-card">
+                    <h4>Average Order Value</h4>
+                    <p>Average revenue per order</p>
+                </a>
+                <a href="../cart_abandonment_rate.html" class="related-metric-card">
+                    <h4>Cart Abandonment Rate</h4>
+                    <p>Percentage of carts abandoned</p>
+                </a>
+                <a href="../median_order_value.html" class="related-metric-card">
+                    <h4>Median Order Value</h4>
+                    <p>Median order value</p>
+                </a>
+                <a href="../orders_by_channel.html" class="related-metric-card">
+                    <h4>Orders by Channel</h4>
+                    <p>Orders broken down by sales channel</p>
+                </a>
+            </div>
+            
+            <h2>Metadata</h2>
+            
+            <table>
+                <tr>
+                    <td>importance</td>
+                    <td>high</td>
+                </tr>
+                <tr>
+                    <td>refresh_frequency</td>
+                    <td>hourly</td>
+                </tr>
+                <tr>
+                    <td>data_quality_checks</td>
+                    <td>not_null, positive_values</td>
+                </tr>
+                <tr>
+                    <td>owner</td>
+                    <td>sales_analytics_team</td>
+                </tr>
+            </table>
+            
+            <div class="tags">
+                <span class="tag">core-metric</span>
+                <span class="tag">sales</span>
+                <span class="tag">volume</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

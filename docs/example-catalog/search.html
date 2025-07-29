@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Metric Catalog Search</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .search-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .search-box { 
+            width: 100%; 
+            padding: 12px 20px; 
+            font-size: 16px; 
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-box:focus {
+            border-color: #4CAF50;
+        }
+        .filters {
+            margin-top: 15px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .filter-chip {
+            padding: 6px 12px;
+            background: #f0f0f0;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+        .filter-chip:hover {
+            background: #e0e0e0;
+        }
+        .filter-chip.active {
+            background: #4CAF50;
+            color: white;
+        }
+        .results { 
+            margin-top: 20px; 
+        }
+        .metric { 
+            background: white;
+            border-radius: 8px;
+            padding: 20px; 
+            margin: 10px 0; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .metric:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .metric h3 { 
+            margin: 0 0 10px 0; 
+            color: #333;
+        }
+        .metric h3 a {
+            color: #1976D2;
+            text-decoration: none;
+        }
+        .metric h3 a:hover {
+            text-decoration: underline;
+        }
+        .metric .meta {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .metric .type { 
+            color: #666; 
+        }
+        .metric .domain { 
+            background: #f0f0f0; 
+            padding: 3px 10px; 
+            border-radius: 4px; 
+            font-weight: 500;
+        }
+        .metric .description {
+            color: #555;
+            line-height: 1.5;
+        }
+        .metric .dimensions {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #777;
+        }
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .stats {
+            text-align: center;
+            margin: 20px 0;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Metric Catalog Search</h1>
+        
+        <div class="search-container">
+            <input type="text" class="search-box" placeholder="Search metrics by name, description, or dimension..." id="searchBox">
+            
+            <div class="filters">
+                <div class="filter-chip" data-filter="type" data-value="all">All Types</div>
+                <div class="filter-chip" data-filter="type" data-value="simple">Simple</div>
+                <div class="filter-chip" data-filter="type" data-value="ratio">Ratio</div>
+                <div class="filter-chip" data-filter="type" data-value="derived">Derived</div>
+                <div class="filter-chip" data-filter="type" data-value="cumulative">Cumulative</div>
+                <div class="filter-chip" data-filter="type" data-value="conversion">Conversion</div>
+            </div>
+        </div>
+        
+        <div class="stats" id="stats">Loading metrics...</div>
+        <div class="results" id="results"></div>
+    </div>
+    
+    <script>
+        let metricsData = [];
+        let activeFilters = { type: 'all' };
+        
+        // Sample data (would be loaded from search-index.json)
+        metricsData = [
+            {
+                name: "total_orders",
+                label: "Total Orders",
+                description: "Total number of orders placed in the system. This is a fundamental metric that tracks the volume of business transactions.",
+                type: "simple",
+                domain: "orders",
+                url: "metrics/orders/total_orders.md",
+                dimensions: ["order_date", "customer_segment", "channel", "product_category"]
+            },
+            {
+                name: "average_order_value",
+                label: "Average Order Value",
+                description: "Average revenue per order. Calculated as total revenue divided by total orders.",
+                type: "derived",
+                domain: "orders",
+                url: "metrics/orders/average_order_value.md",
+                dimensions: ["order_date", "customer_segment", "channel", "product_category"]
+            },
+            {
+                name: "cart_abandonment_rate",
+                label: "Cart Abandonment Rate",
+                description: "Percentage of shopping carts that are abandoned before completing purchase.",
+                type: "ratio",
+                domain: "orders",
+                url: "metrics/orders/cart_abandonment_rate.md",
+                dimensions: ["date", "device_type", "channel"]
+            },
+            {
+                name: "customer_lifetime_value",
+                label: "Customer Lifetime Value",
+                description: "Average lifetime value per customer, incorporating repeat purchase rate.",
+                type: "derived",
+                domain: "customers",
+                url: "metrics/customers/customer_lifetime_value.md",
+                dimensions: ["customer_cohort", "acquisition_channel", "customer_segment"]
+            },
+            {
+                name: "running_total_revenue",
+                label: "Running Total Revenue",
+                description: "Cumulative revenue over time showing business growth trajectory.",
+                type: "cumulative",
+                domain: "revenue",
+                url: "metrics/revenue/running_total_revenue.md",
+                dimensions: ["order_date"]
+            }
+        ];
+        
+        // Initialize
+        updateStats();
+        displayResults(metricsData);
+        
+        // Search functionality
+        document.getElementById('searchBox').addEventListener('input', function(e) {
+            performSearch();
+        });
+        
+        // Filter functionality
+        document.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.addEventListener('click', function() {
+                const filter = this.dataset.filter;
+                const value = this.dataset.value;
+                
+                // Update active state
+                document.querySelectorAll(`[data-filter="${filter}"]`).forEach(c => c.classList.remove('active'));
+                this.classList.add('active');
+                
+                activeFilters[filter] = value;
+                performSearch();
+            });
+        });
+        
+        // Set initial active filter
+        document.querySelector('[data-value="all"]').classList.add('active');
+        
+        function performSearch() {
+            const query = document.getElementById('searchBox').value.toLowerCase();
+            
+            let results = metricsData.filter(metric => {
+                // Text search
+                const matchesText = !query || 
+                    metric.name.toLowerCase().includes(query) ||
+                    metric.label.toLowerCase().includes(query) ||
+                    metric.description.toLowerCase().includes(query) ||
+                    metric.dimensions.some(d => d.toLowerCase().includes(query));
+                    
+                // Type filter
+                const matchesType = activeFilters.type === 'all' || metric.type === activeFilters.type;
+                
+                return matchesText && matchesType;
+            });
+            
+            displayResults(results);
+        }
+        
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            
+            if (results.length === 0) {
+                resultsDiv.innerHTML = '<div class="no-results">No metrics found matching your criteria</div>';
+                return;
+            }
+            
+            resultsDiv.innerHTML = results.map(metric => `
+                <div class="metric">
+                    <h3><a href="${metric.url}">${metric.label}</a></h3>
+                    <div class="meta">
+                        <span class="type">Type: <strong>${metric.type}</strong></span>
+                        <span class="domain">${metric.domain}</span>
+                    </div>
+                    <p class="description">${metric.description}</p>
+                    <div class="dimensions">
+                        <strong>Dimensions:</strong> ${metric.dimensions.join(', ')}
+                    </div>
+                </div>
+            `).join('');
+            
+            updateStats(results.length);
+        }
+        
+        function updateStats(count = metricsData.length) {
+            document.getElementById('stats').textContent = `Showing ${count} of ${metricsData.length} metrics`;
+        }
+    </script>
+</body>
+</html>

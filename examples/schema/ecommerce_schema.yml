@@ -1,0 +1,201 @@
+# Example E-commerce Schema for Smart Suggestions
+tables:
+  fct_orders:
+    schema: analytics
+    description: Order fact table containing all customer orders
+    row_count: 1500000
+    columns:
+      - name: order_id
+        type: bigint
+        primary_key: true
+        nullable: false
+        description: Unique order identifier
+        
+      - name: customer_id
+        type: bigint
+        foreign_key: true
+        references: dim_customers
+        nullable: false
+        description: Reference to customer dimension
+        
+      - name: order_date
+        type: timestamp
+        nullable: false
+        description: Date and time when order was placed
+        
+      - name: order_status
+        type: varchar(50)
+        nullable: false
+        description: Current order status (pending, processing, shipped, delivered, cancelled)
+        sample_values: ['pending', 'processing', 'shipped', 'delivered', 'cancelled']
+        
+      - name: order_total
+        type: decimal(10,2)
+        nullable: false
+        description: Total order amount including tax and shipping
+        
+      - name: subtotal_amount
+        type: decimal(10,2)
+        nullable: false
+        description: Order subtotal before tax and shipping
+        
+      - name: shipping_amount
+        type: decimal(10,2)
+        nullable: true
+        description: Shipping cost for the order
+        
+      - name: tax_amount
+        type: decimal(10,2)
+        nullable: true
+        description: Tax amount for the order
+        
+      - name: discount_amount
+        type: decimal(10,2)
+        nullable: true
+        description: Total discount applied to order
+        
+      - name: payment_method
+        type: varchar(50)
+        nullable: true
+        description: Payment method used (credit_card, paypal, etc)
+        
+      - name: shipping_country
+        type: varchar(2)
+        nullable: true
+        description: ISO country code for shipping address
+        
+      - name: is_first_order
+        type: boolean
+        nullable: false
+        description: Whether this is customer's first order
+        
+      - name: is_gift
+        type: boolean
+        nullable: false
+        description: Whether order is marked as gift
+        
+      - name: has_discount
+        type: boolean
+        nullable: false
+        description: Whether any discount was applied
+        
+      - name: created_at
+        type: timestamp
+        nullable: false
+        description: When the order was created
+        
+      - name: updated_at
+        type: timestamp
+        nullable: false
+        description: When the order was last updated
+
+  fct_order_items:
+    schema: analytics
+    description: Order line items
+    row_count: 4500000
+    columns:
+      - name: order_item_id
+        type: bigint
+        primary_key: true
+        nullable: false
+        
+      - name: order_id
+        type: bigint
+        foreign_key: true
+        references: fct_orders
+        nullable: false
+        
+      - name: product_id
+        type: bigint
+        foreign_key: true
+        references: dim_products
+        nullable: false
+        
+      - name: quantity
+        type: integer
+        nullable: false
+        
+      - name: unit_price
+        type: decimal(10,2)
+        nullable: false
+        
+      - name: line_total
+        type: decimal(10,2)
+        nullable: false
+        
+      - name: discount_amount
+        type: decimal(10,2)
+        nullable: true
+
+  dim_customers:
+    schema: analytics
+    description: Customer dimension table
+    row_count: 250000
+    columns:
+      - name: customer_id
+        type: bigint
+        primary_key: true
+        nullable: false
+        
+      - name: customer_status
+        type: varchar(20)
+        nullable: false
+        description: Customer status (active, churned, suspended)
+        
+      - name: customer_segment
+        type: varchar(50)
+        nullable: true
+        description: Customer segmentation (vip, regular, new)
+        
+      - name: acquisition_date
+        type: date
+        nullable: false
+        
+      - name: acquisition_channel
+        type: varchar(50)
+        nullable: true
+        
+      - name: lifetime_value
+        type: decimal(10,2)
+        nullable: true
+        
+      - name: is_active
+        type: boolean
+        nullable: false
+        
+      - name: has_subscription
+        type: boolean
+        nullable: false
+
+  fct_customer_activity:
+    schema: analytics
+    description: Customer activity events
+    row_count: 10000000
+    columns:
+      - name: activity_id
+        type: bigint
+        primary_key: true
+        nullable: false
+        
+      - name: customer_id
+        type: bigint
+        foreign_key: true
+        references: dim_customers
+        nullable: false
+        
+      - name: activity_date
+        type: timestamp
+        nullable: false
+        
+      - name: activity_type
+        type: varchar(50)
+        nullable: false
+        description: Type of activity (login, purchase, support_ticket, etc)
+        
+      - name: session_duration_seconds
+        type: integer
+        nullable: true
+        
+      - name: page_views
+        type: integer
+        nullable: true

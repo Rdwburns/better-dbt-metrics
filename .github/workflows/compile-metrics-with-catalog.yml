@@ -1,0 +1,88 @@
+name: Compile Metrics and Generate Catalog
+on:
+  push:
+    paths:
+      - 'metrics/**/*.yml'
+      - 'templates/**/*.yml'
+  pull_request:
+    paths:
+      - 'metrics/**/*.yml'
+      - 'templates/**/*.yml'
+  workflow_dispatch:
+    inputs:
+      generate_catalog:
+        description: 'Generate metric catalog'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  compile-and-catalog:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install Better-DBT-Metrics
+      run: |
+        pip install -e .
+        
+    - name: Compile Metrics
+      run: |
+        better-dbt-metrics compile \
+          --input-dir metrics/ \
+          --output-dir models/semantic/ \
+          --environment ${{ github.event_name == 'push' && 'prod' || 'dev' }}
+          
+    - name: Generate Metric Catalog
+      if: github.event_name == 'push' || inputs.generate_catalog == 'true'
+      run: |
+        better-dbt-metrics catalog \
+          --input-dir metrics/ \
+          --output-dir docs/metrics \
+          --format detailed \
+          --include-search \
+          --include-lineage \
+          --include-sql
+          
+    - name: Upload Catalog as Artifact
+      if: github.event_name == 'push' || inputs.generate_catalog == 'true'
+      uses: actions/upload-artifact@v3
+      with:
+        name: metric-catalog
+        path: docs/metrics/
+        
+    - name: Deploy to GitHub Pages
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs/metrics
+        destination_dir: metrics
+        
+    - name: Comment PR with Catalog Link
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `📊 **Metric Catalog Generated!**\n\nView the catalog artifact: ${artifactUrl}\n\nThe catalog includes:\n- Searchable metric documentation\n- Data lineage visualization\n- SQL query examples\n- Dimension catalog`
+          })
+          
+    - name: Commit compiled models
+      if: github.event_name == 'push'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add models/semantic/
+        git diff --cached --quiet || git commit -m "Auto-compile metrics [skip ci]"
+        git push
