@@ -228,7 +228,35 @@ class BetterDBTCompiler:
                 raise
             
             # Group by source for semantic model generation
-            source = compiled_metric.get('source', 'unknown')
+            source = compiled_metric.get('source')
+            
+            # Validate that metric has a source
+            if not source:
+                metric_type = compiled_metric.get('type', 'unknown')
+                metric_name = compiled_metric.get('name', 'unknown')
+                
+                # Provide specific guidance based on metric type
+                if metric_type == 'ratio':
+                    raise ValueError(
+                        f"Ratio metric '{metric_name}' is missing a source. "
+                        f"Please add either:\n"
+                        f"  1. A top-level 'source' field to the metric, OR\n"
+                        f"  2. Both 'numerator.source' and 'denominator.source' fields"
+                    )
+                elif metric_type == 'derived':
+                    # Derived metrics don't need a source
+                    source = 'derived'
+                else:
+                    raise ValueError(
+                        f"Metric '{metric_name}' of type '{metric_type}' is missing required 'source' field"
+                    )
+            
+            if source == 'unknown':
+                raise ValueError(
+                    f"Metric '{compiled_metric.get('name', 'unknown')}' has invalid source 'unknown'. "
+                    f"Please specify a valid source table."
+                )
+                
             if source not in self.metrics_by_source:
                 self.metrics_by_source[source] = []
             self.metrics_by_source[source].append(compiled_metric)
@@ -377,6 +405,12 @@ class BetterDBTCompiler:
             
         # Also process metric_time in numerator/denominator for ratio metrics
         if metric_def.get('type') == 'ratio':
+            # Validate ratio metric has proper structure
+            if 'numerator' not in metric_def or 'denominator' not in metric_def:
+                raise ValueError(
+                    f"Ratio metric '{metric_def.get('name')}' must have both 'numerator' and 'denominator' fields"
+                )
+            
             # Ensure numerator is a dict
             if 'numerator' in metric_def:
                 if not isinstance(metric_def['numerator'], dict):
@@ -404,6 +438,25 @@ class BetterDBTCompiler:
                     metric_def['denominator']['dimensions'] = self._process_metric_time_dimensions(
                         metric_def['denominator']['dimensions']
                     )
+            
+            # Validate that either metric has a source, or both numerator and denominator have sources
+            if 'source' not in metric_def:
+                num_source = metric_def.get('numerator', {}).get('source')
+                den_source = metric_def.get('denominator', {}).get('source')
+                
+                if not num_source or not den_source:
+                    raise ValueError(
+                        f"Ratio metric '{metric_def.get('name')}' must have either:\n"
+                        f"  1. A top-level 'source' field, OR\n"
+                        f"  2. Both 'numerator.source' and 'denominator.source' fields\n"
+                        f"Current state: numerator.source={num_source}, denominator.source={den_source}"
+                    )
+                
+                # If both have sources and they're the same, use that as the metric source
+                if num_source == den_source:
+                    metric_def['source'] = num_source
+                    if self.config.debug:
+                        print(f"[DEBUG] Auto-setting source '{num_source}' for ratio metric '{metric_def.get('name')}' from matching numerator/denominator sources")
         
         # Only add source if it exists (not all metric types have source)
         if 'source' in metric_def:
@@ -774,7 +827,11 @@ class BetterDBTCompiler:
                 }
                 self.compiled_metrics.append(variant)
                 # Also add to metrics_by_source
-                source = variant.get('source', 'unknown')
+                source = variant.get('source')
+                if not source:
+                    # For auto-variants, inherit source from parent metric
+                    source = metric.get('source', 'derived')
+                    variant['source'] = source
                 if source not in self.metrics_by_source:
                     self.metrics_by_source[source] = []
                 self.metrics_by_source[source].append(variant)
@@ -792,7 +849,11 @@ class BetterDBTCompiler:
                     variant['dimensions'].append({'name': dim})
                 self.compiled_metrics.append(variant)
                 # Also add to metrics_by_source
-                source = variant.get('source', 'unknown')
+                source = variant.get('source')
+                if not source:
+                    # For auto-variants, inherit source from parent metric
+                    source = metric.get('source', 'derived')
+                    variant['source'] = source
                 if source not in self.metrics_by_source:
                     self.metrics_by_source[source] = []
                 self.metrics_by_source[source].append(variant)

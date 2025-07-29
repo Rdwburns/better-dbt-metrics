@@ -122,6 +122,83 @@ metrics:
         
         assert 'refund_rate_numerator' in measures
         assert 'refund_rate_denominator' in measures
+    
+    def test_ratio_metric_missing_source_validation(self):
+        """Test that ratio metrics without proper sources fail validation"""
+        # Test case 1: Missing numerator source
+        content = """
+version: 2
+metrics:
+  - name: bad_ratio
+    type: ratio
+    numerator:
+      measure:
+        type: count
+        column: visitors
+    denominator:
+      source: fct_visits  
+      measure:
+        type: count
+        column: visitors
+"""
+        self.create_test_file("bad_ratio.yml", content)
+        
+        config = CompilerConfig(
+            input_dir=self.temp_dir,
+            output_dir=str(self.output_dir),
+            debug=False
+        )
+        compiler = BetterDBTCompiler(config)
+        
+        # Should raise ValueError with helpful message
+        with pytest.raises(ValueError) as exc_info:
+            compiler.compile_directory()
+            
+        error_msg = str(exc_info.value)
+        assert "bad_ratio" in error_msg
+        assert "numerator.source" in error_msg
+        assert "denominator.source" in error_msg
+        
+    def test_ratio_metric_auto_source_detection(self):
+        """Test that ratio metrics auto-detect source when both num/den have same source"""
+        content = """
+version: 2
+metrics:
+  - name: same_source_ratio
+    type: ratio
+    numerator:
+      source: fct_orders
+      measure:
+        type: sum
+        column: refunds
+    denominator:
+      source: fct_orders  
+      measure:
+        type: sum
+        column: revenue
+"""
+        self.create_test_file("same_source.yml", content)
+        
+        config = CompilerConfig(
+            input_dir=self.temp_dir,
+            output_dir=str(self.output_dir),
+            debug=False
+        )
+        compiler = BetterDBTCompiler(config)
+        
+        # Should compile successfully and auto-detect source
+        result = compiler.compile_directory()
+        assert result['errors'] == []
+        assert result['metrics_compiled'] > 0
+        
+        # Check that semantic model was created for fct_orders, not unknown
+        output_files = list(self.output_dir.glob("*.yml"))
+        sem_files = [f for f in output_files if f.name.startswith("sem_")]
+        
+        # Should not have sem_unknown.yml
+        assert not any(f.name == "sem_unknown.yml" for f in sem_files)
+        # Should have sem_fct_orders.yml
+        assert any(f.name == "sem_fct_orders.yml" for f in sem_files)
         
     def test_derived_metric_compilation(self):
         """Test compiling a derived metric"""
