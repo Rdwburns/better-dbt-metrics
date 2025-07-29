@@ -30,8 +30,9 @@ def cli():
 @click.option('--auto-variants/--no-auto-variants', default=True, help='Generate auto variants')
 @click.option('--validate/--no-validate', default=True, help='Validate metrics')
 @click.option('--json-output', is_flag=True, help='Output JSON report')
+@click.option('--debug', is_flag=True, help='Enable debug output')
 def compile(input_dir, output_dir, template_dir, dimension_group_dir, 
-           environment, config, split_files, auto_variants, validate, json_output):
+           environment, config, split_files, auto_variants, validate, json_output, debug):
     """Compile better-dbt-metrics YAML to dbt semantic models"""
     
     # Load config file if provided
@@ -53,7 +54,8 @@ def compile(input_dir, output_dir, template_dir, dimension_group_dir,
         environment=environment,
         split_files=split_files,
         auto_variants=auto_variants,
-        validate=validate
+        validate=validate,
+        debug=debug
     )
     
     # Run compilation

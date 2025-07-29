@@ -26,6 +26,7 @@ class CompilerConfig:
     environment: str = "dev"
     auto_variants: bool = True
     generate_tests: bool = True
+    debug: bool = False
     
 
 class BetterDBTCompiler:
@@ -153,11 +154,24 @@ class BetterDBTCompiler:
         
         for metric in metrics:
             try:
+                if self.config.debug:
+                    print(f"\n[DEBUG] Compiling metric: {metric.get('name', 'unknown')}")
+                    print(f"[DEBUG] Metric type: {type(metric)}")
+                    if isinstance(metric, dict):
+                        print(f"[DEBUG] Metric keys: {list(metric.keys())}")
+                        if 'dimensions' in metric:
+                            print(f"[DEBUG] Dimensions type: {type(metric['dimensions'])}")
+                            print(f"[DEBUG] Dimensions value: {metric['dimensions']}")
+                
                 compiled_metric = self._compile_metric(metric)
                 self.compiled_metrics.append(compiled_metric)
             except AttributeError as e:
                 if "'list' object has no attribute 'get'" in str(e):
                     metric_name = metric.get('name', 'unknown')
+                    if self.config.debug:
+                        import traceback
+                        print(f"\n[DEBUG] Full traceback:")
+                        traceback.print_exc()
                     raise AttributeError(f"Error compiling metric '{metric_name}': {e}. Check that dimensions are properly formatted.")
                 raise
             
@@ -190,9 +204,17 @@ class BetterDBTCompiler:
                         
     def _compile_metric(self, metric_def: Dict[str, Any]) -> Dict[str, Any]:
         """Compile a single metric definition"""
+        if self.config.debug:
+            print(f"\n[DEBUG] _compile_metric called with: {metric_def.get('name', 'unknown')}")
+            
         # Handle template expansion
         if 'template' in metric_def or 'extends' in metric_def or '$use' in metric_def:
+            if self.config.debug:
+                print(f"[DEBUG] Expanding template for metric: {metric_def.get('name')}")
+                print(f"[DEBUG] Template/extends/$use: {metric_def.get('template', metric_def.get('extends', metric_def.get('$use')))}")
             metric_def = self._expand_metric_template(metric_def)
+            if self.config.debug:
+                print(f"[DEBUG] After template expansion, dimensions: {metric_def.get('dimensions', 'none')}")
             
         # Expand dimension groups first
         if 'dimension_groups' in metric_def:
@@ -226,18 +248,32 @@ class BetterDBTCompiler:
         # Expand dimension references
         if 'dimensions' in metric_def:
             dims = metric_def['dimensions']
+            if self.config.debug:
+                print(f"[DEBUG] Processing dimensions for {metric_def.get('name')}")
+                print(f"[DEBUG] Dimensions before expansion: type={type(dims)}, value={dims}")
+            
             # Handle unresolved $ref
             if isinstance(dims, dict) and '$ref' in dims:
                 # Try to resolve it here if parser didn't
                 ref_path = dims['$ref']
+                if self.config.debug:
+                    print(f"[DEBUG] Found unresolved $ref: {ref_path}")
                 if ref_path.startswith('_base.dimension_groups.'):
                     group_name = ref_path.split('.')[-1]
                     try:
                         dims = self.dimension_groups.get_dimensions_for_group(group_name)
-                    except:
+                        if self.config.debug:
+                            print(f"[DEBUG] Resolved dimension group '{group_name}' to: {dims}")
+                    except Exception as e:
+                        if self.config.debug:
+                            print(f"[DEBUG] Failed to resolve dimension group '{group_name}': {e}")
                         # If not found, try without _base prefix
                         dims = []
-            metric_def['dimensions'] = self._expand_dimensions(dims)
+            
+            expanded_dims = self._expand_dimensions(dims)
+            if self.config.debug:
+                print(f"[DEBUG] Dimensions after expansion: {expanded_dims}")
+            metric_def['dimensions'] = expanded_dims
             
         # Add default fields
         compiled = {
@@ -286,6 +322,10 @@ class BetterDBTCompiler:
             params = metric_def.copy()
             params.pop('$use')  # Remove $use from params
             
+            if self.config.debug:
+                print(f"[DEBUG] Expanding $use: {template_ref}")
+                print(f"[DEBUG] Parameters: {list(params.keys())}")
+            
             # Extract template name from reference like "templates.margin_metric"
             if '.' in template_ref:
                 parts = template_ref.split('.')
@@ -293,10 +333,18 @@ class BetterDBTCompiler:
             else:
                 template_name = template_ref
             
+            if self.config.debug:
+                print(f"[DEBUG] Template name: {template_name}")
+            
             # Expand template
             try:
                 expanded = self.templates.expand(template_name, params)
-            except Exception:
+                if self.config.debug:
+                    print(f"[DEBUG] Template expanded successfully")
+                    print(f"[DEBUG] Expanded keys: {list(expanded.keys())}")
+            except Exception as e:
+                if self.config.debug:
+                    print(f"[DEBUG] Template expansion failed: {e}")
                 # Template might not be found, return as-is
                 return metric_def
             
