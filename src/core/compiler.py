@@ -51,7 +51,8 @@ class BetterDBTCompiler:
         self.parser = BetterDBTParser(
             base_dir=".", 
             debug=config.debug,
-            import_mappings=self.bdm_config.import_mappings
+            import_mappings=self.bdm_config.import_mappings,
+            search_paths=self.bdm_config.search_paths
         )
         self.templates = TemplateLibrary(config.template_dirs)
         self.dimension_groups = DimensionGroupManager()

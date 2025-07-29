@@ -37,7 +37,7 @@ class BetterDBTParser:
     - Variable substitution
     """
     
-    def __init__(self, base_dir: str = ".", debug: bool = False, import_mappings: Optional[Dict[str, str]] = None):
+    def __init__(self, base_dir: str = ".", debug: bool = False, import_mappings: Optional[Dict[str, str]] = None, search_paths: Optional[List[str]] = None):
         self.base_dir = Path(base_dir)
         self.imports_cache: Dict[str, Any] = {}
         self.current_file: Optional[Path] = None
@@ -45,6 +45,7 @@ class BetterDBTParser:
         self.current_data: Dict[str, Any] = {}  # Store current file data for access by compiler
         self.debug = debug
         self.import_mappings = import_mappings or {}  # Map import aliases to paths
+        self.search_paths = search_paths or []  # Additional paths to search for imports
         
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """Parse a better-dbt-metrics YAML file with all advanced features"""
@@ -138,6 +139,8 @@ class BetterDBTParser:
         
         if self.debug:
             print(f"[DEBUG] Attempting to import: {import_path} (from {base_dir})")
+            if self.search_paths:
+                print(f"[DEBUG] Configured search paths: {self.search_paths}")
         
         # Check if import path matches any configured mappings
         if import_path in self.import_mappings:
@@ -184,8 +187,19 @@ class BetterDBTParser:
             if candidate.exists():
                 full_path = candidate
             else:
-                # Strategy 3: Check common template locations
-                common_paths = [
+                # Strategy 3: Check configured search paths first
+                search_paths = []
+                for search_path in self.search_paths:
+                    search_base = Path(search_path)
+                    if not search_base.is_absolute():
+                        search_base = self.base_dir / search_base
+                    search_candidate = search_base / import_path
+                    search_paths.append(search_candidate)
+                    if self.debug:
+                        print(f"[DEBUG] Added search path: {search_candidate}")
+                
+                # Strategy 4: Check common template locations
+                common_paths = search_paths + [
                     self.base_dir / "templates" / import_path,
                     self.base_dir / "_base" / import_path,
                     self.base_dir / "shared" / import_path,
