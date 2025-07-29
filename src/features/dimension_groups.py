@@ -244,7 +244,7 @@ class DimensionGroupManager:
         dimensions = []
         for dim in group.dimensions:
             dimensions.append(self._dimension_to_dict(dim))
-            
+        
         return dimensions
         
     def get_group(self, group_name: str) -> DimensionGroup:

@@ -152,8 +152,14 @@ class BetterDBTCompiler:
         metrics = parsed_data.get('metrics', [])
         
         for metric in metrics:
-            compiled_metric = self._compile_metric(metric)
-            self.compiled_metrics.append(compiled_metric)
+            try:
+                compiled_metric = self._compile_metric(metric)
+                self.compiled_metrics.append(compiled_metric)
+            except AttributeError as e:
+                if "'list' object has no attribute 'get'" in str(e):
+                    metric_name = metric.get('name', 'unknown')
+                    raise AttributeError(f"Error compiling metric '{metric_name}': {e}. Check that dimensions are properly formatted.")
+                raise
             
             # Group by source for semantic model generation
             source = compiled_metric.get('source', 'unknown')
@@ -194,13 +200,27 @@ class BetterDBTCompiler:
             for group_name in metric_def['dimension_groups']:
                 try:
                     group_dims = self.dimension_groups.get_dimensions_for_group(group_name)
-                    dimensions.extend(group_dims)
+                    # Ensure group_dims is a list
+                    if isinstance(group_dims, list):
+                        dimensions.extend(group_dims)
+                    else:
+                        # Convert single dimension to list
+                        dimensions.append(group_dims)
                 except ValueError:
                     # Group not found, skip it
                     pass
+                except Exception as e:
+                    # Log error but continue
+                    print(f"Warning: Error expanding dimension group '{group_name}': {e}")
+                    pass
             # Add any additional dimensions
             if 'dimensions' in metric_def:
-                dimensions.extend(metric_def['dimensions'])
+                existing_dims = metric_def['dimensions']
+                # Ensure it's a list before extending
+                if isinstance(existing_dims, list):
+                    dimensions.extend(existing_dims)
+                elif existing_dims:
+                    dimensions.append(existing_dims)
             metric_def['dimensions'] = dimensions
             
         # Expand dimension references
@@ -273,6 +293,13 @@ class BetterDBTCompiler:
         """Expand dimension references including groups"""
         expanded = []
         
+        # Ensure dimensions is a list
+        if not isinstance(dimensions, list):
+            if dimensions:
+                dimensions = [dimensions]
+            else:
+                return []
+        
         for dim in dimensions:
             if isinstance(dim, str):
                 # Simple dimension name
@@ -281,8 +308,16 @@ class BetterDBTCompiler:
             elif isinstance(dim, dict):
                 if '$ref' in dim or '$use' in dim:
                     # Dimension group reference
-                    group_dims = self.dimension_groups.expand_dimension_reference(dim)
-                    expanded.extend(group_dims)
+                    try:
+                        group_dims = self.dimension_groups.expand_dimension_reference(dim)
+                        if isinstance(group_dims, list):
+                            expanded.extend(group_dims)
+                        else:
+                            expanded.append(group_dims)
+                    except Exception as e:
+                        print(f"Warning: Error expanding dimension reference {dim}: {e}")
+                        # Keep the reference as-is
+                        expanded.append(dim)
                 else:
                     # Regular dimension
                     expanded.append(dim)
@@ -297,6 +332,13 @@ class BetterDBTCompiler:
     def _process_metric_time_dimensions(self, dimensions: List[Any]) -> List[Any]:
         """Process metric_time dimensions and expand them if needed"""
         processed = []
+        
+        # Ensure dimensions is a list
+        if not isinstance(dimensions, list):
+            if dimensions:
+                dimensions = [dimensions]
+            else:
+                return []
         
         for dim in dimensions:
             if isinstance(dim, dict) and dim.get('name') == 'metric_time':
@@ -451,7 +493,7 @@ class BetterDBTCompiler:
                 # Add the dimension if not already present
                 if 'dimensions' not in variant:
                     variant['dimensions'] = []
-                if not any(d.get('name') == dim for d in variant['dimensions']):
+                if not any((d.get('name') if isinstance(d, dict) else d) == dim for d in variant['dimensions']):
                     variant['dimensions'].append({'name': dim})
                 self.compiled_metrics.append(variant)
                 # Also add to metrics_by_source
