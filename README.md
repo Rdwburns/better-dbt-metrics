@@ -739,6 +739,60 @@ metrics:
     dimension_groups: [revenue_analysis]
 ```
 
+## ⚙️ Configuration
+
+Better-DBT-Metrics can be configured using a `bdm_config.yml` file to customize compilation behavior and set organization-specific defaults.
+
+### Quick Configuration Example
+
+```yaml
+# bdm_config.yml
+version: 1
+
+# Custom paths
+paths:
+  metrics_dir: analytics/metrics/
+  output_dir: models/marts/metrics/
+  template_dir: shared/templates/
+
+# Import shortcuts
+imports:
+  mappings:
+    "_base.templates": "_base/templates.yml"
+    "_base.dimensions": "_base/dimension_groups.yml"
+
+# Auto-variant settings
+auto_variants:
+  time_comparisons:
+    enabled: true
+    default_periods: [wow, mom, yoy]
+  
+# Domain-specific settings
+domains:
+  marketing:
+    auto_variants:
+      channel_splits: [organic, paid, social]
+  finance:
+    auto_variants:
+      currency_splits: [USD, EUR, GBP]
+
+# Validation rules
+validation:
+  require_descriptions: true
+  require_labels: true
+```
+
+### Configuration Features
+
+- **🗂️ Path Configuration** - Custom input/output directories
+- **🔗 Import Mappings** - Shortcuts for commonly imported files  
+- **🔄 Auto-Variants** - Automatic metric variant generation
+- **🏢 Domain Settings** - Different configs per domain (marketing, finance, etc.)
+- **✅ Validation Rules** - Enforce organizational standards
+- **📊 Output Control** - Customize generated file format
+
+**📚 Full Documentation**: See [docs/configuration.md](docs/configuration.md) for complete configuration reference.
+
 ## 🚧 Roadmap
 
 See [FEATURE_STATUS.md](FEATURE_STATUS.md) for detailed feature tracking.
