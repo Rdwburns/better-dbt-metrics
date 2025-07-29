@@ -288,6 +288,32 @@ class BetterDBTCompiler:
                             print(f"[DEBUG] Failed to resolve dimension group '{group_name}': {e}")
                         # If not found, try without _base prefix
                         dims = []
+            # Also handle string format with $ref
+            elif isinstance(dims, str) and dims.startswith('$ref('):
+                # Extract reference from $ref(...) format
+                ref_match = dims[5:-1] if dims.endswith(')') else dims[5:]
+                if self.config.debug:
+                    print(f"[DEBUG] Found string $ref: {ref_match}")
+                    
+                # Try to resolve the dimension group
+                if ref_match.startswith('_base.dimension_groups.'):
+                    group_name = ref_match.split('.')[-1]
+                    try:
+                        # Try with full alias path first
+                        full_group_name = ref_match.replace('_base.dimension_groups.', 'metrics/_base/../_base/dimension_groups.yml.')
+                        dims = self.dimension_groups.get_dimensions_for_group(full_group_name)
+                        if self.config.debug:
+                            print(f"[DEBUG] Resolved dimension group '{full_group_name}' to: {dims}")
+                    except:
+                        try:
+                            # Try just the group name
+                            dims = self.dimension_groups.get_dimensions_for_group(group_name)
+                            if self.config.debug:
+                                print(f"[DEBUG] Resolved dimension group '{group_name}' to: {dims}")
+                        except Exception as e:
+                            if self.config.debug:
+                                print(f"[DEBUG] Failed to resolve dimension group '{group_name}': {e}")
+                            dims = []
             
             expanded_dims = self._expand_dimensions(dims)
             if self.config.debug:
@@ -408,8 +434,15 @@ class BetterDBTCompiler:
         
         for dim in dimensions:
             if isinstance(dim, str):
-                # Simple dimension name
-                expanded.append({'name': dim})
+                # Check if it's a reference
+                if dim.startswith('$ref(') and dim.endswith(')'):
+                    # This is an unresolved reference, skip it
+                    if self.config.debug:
+                        print(f"[DEBUG] Skipping unresolved string reference: {dim}")
+                    continue
+                else:
+                    # Simple dimension name
+                    expanded.append({'name': dim})
                 
             elif isinstance(dim, dict):
                 if '$ref' in dim or '$use' in dim:
