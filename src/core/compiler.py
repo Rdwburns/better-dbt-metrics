@@ -487,25 +487,72 @@ class BetterDBTCompiler:
     def _register_imported_dimension_groups(self):
         """Register dimension groups from imported files"""
         for alias, imported_data in self.parser.imports_cache.items():
+            if self.config.debug:
+                print(f"\n[DEBUG] Checking import '{alias}' for dimension groups")
+                print(f"[DEBUG] Import keys: {list(imported_data.keys())}")
+                
             if 'dimension_groups' in imported_data:
-                # First pass: register all groups without resolving extends
-                for name, group_def in imported_data['dimension_groups'].items():
-                    # Make a copy and adjust extends references if needed
-                    adjusted_group = deepcopy(group_def)
-                    if 'extends' in adjusted_group:
-                        # Adjust extends to include alias prefix
-                        adjusted_extends = []
-                        for extend_ref in adjusted_group['extends']:
-                            if '.' not in extend_ref:
-                                # It's a local reference within the same import
-                                adjusted_extends.append(f"{alias}.{extend_ref}")
-                            else:
-                                adjusted_extends.append(extend_ref)
-                        adjusted_group['extends'] = adjusted_extends
-                    
-                    # Register with alias prefix
-                    full_name = f"{alias}.{name}"
-                    self.dimension_groups.register_group(full_name, adjusted_group)
+                dimension_groups = imported_data['dimension_groups']
+                
+                if self.config.debug:
+                    print(f"[DEBUG] Found dimension_groups in '{alias}'")
+                    print(f"[DEBUG] Type: {type(dimension_groups)}")
+                    if isinstance(dimension_groups, dict):
+                        print(f"[DEBUG] Keys: {list(dimension_groups.keys())}")
+                
+                # Handle both dict and list formats
+                if isinstance(dimension_groups, dict):
+                    # Standard format: {name: definition}
+                    for name, group_def in dimension_groups.items():
+                        if not isinstance(group_def, dict):
+                            if self.config.debug:
+                                print(f"[DEBUG] Skipping invalid dimension group '{name}' - not a dict")
+                            continue
+                            
+                        # Make a copy and adjust extends references if needed
+                        adjusted_group = deepcopy(group_def)
+                        if 'extends' in adjusted_group:
+                            # Adjust extends to include alias prefix
+                            adjusted_extends = []
+                            for extend_ref in adjusted_group['extends']:
+                                if '.' not in extend_ref:
+                                    # It's a local reference within the same import
+                                    adjusted_extends.append(f"{alias}.{extend_ref}")
+                                else:
+                                    adjusted_extends.append(extend_ref)
+                            adjusted_group['extends'] = adjusted_extends
+                        
+                        # Register with alias prefix
+                        full_name = f"{alias}.{name}"
+                        self.dimension_groups.register_group(full_name, adjusted_group)
+                        
+                elif isinstance(dimension_groups, list):
+                    # List format: [{name: ..., dimensions: ...}, ...]
+                    for idx, group_def in enumerate(dimension_groups):
+                        if not isinstance(group_def, dict):
+                            if self.config.debug:
+                                print(f"[DEBUG] Skipping invalid dimension group at index {idx} - not a dict")
+                            continue
+                            
+                        # Extract name from the definition
+                        name = group_def.get('name', f'group_{idx}')
+                        
+                        # Make a copy and adjust extends references if needed
+                        adjusted_group = deepcopy(group_def)
+                        if 'extends' in adjusted_group:
+                            # Adjust extends to include alias prefix
+                            adjusted_extends = []
+                            for extend_ref in adjusted_group['extends']:
+                                if '.' not in extend_ref:
+                                    # It's a local reference within the same import
+                                    adjusted_extends.append(f"{alias}.{extend_ref}")
+                                else:
+                                    adjusted_extends.append(extend_ref)
+                            adjusted_group['extends'] = adjusted_extends
+                        
+                        # Register with alias prefix
+                        full_name = f"{alias}.{name}"
+                        self.dimension_groups.register_group(full_name, adjusted_group)
                     
     def _register_imported_templates(self):
         """Register templates from imported files"""
