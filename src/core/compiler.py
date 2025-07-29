@@ -82,7 +82,7 @@ class BetterDBTCompiler:
                 print("[DEBUG] Running pre-compilation validation...")
             
             from validation.validator import MetricsValidator
-            validator = MetricsValidator(str(input_path))
+            validator = MetricsValidator(".")
             validation_result = validator.validate_directory(str(input_path))
             
             if validation_result.has_errors():
