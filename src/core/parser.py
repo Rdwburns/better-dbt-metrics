@@ -134,18 +134,48 @@ class BetterDBTParser:
             import_path = path_part.strip()
             alias = alias_part.strip()
             
-        # Resolve relative imports
+        # Resolve import paths - try multiple strategies
+        full_path = None
+        
+        # Strategy 1: Relative to current file's directory
         if import_path.startswith('.'):
-            full_path = (base_dir / import_path).resolve()
+            candidate = (base_dir / import_path[1:]).resolve()
         else:
-            full_path = (self.base_dir / import_path).resolve()
+            candidate = (base_dir / import_path).resolve()
             
-        # Add .yml extension if not present
-        if not full_path.suffix:
-            full_path = full_path.with_suffix('.yml')
+        if not candidate.suffix:
+            candidate = candidate.with_suffix('.yml')
+            
+        if candidate.exists():
+            full_path = candidate
+        else:
+            # Strategy 2: Relative to base directory
+            candidate = (self.base_dir / import_path).resolve()
+            if not candidate.suffix:
+                candidate = candidate.with_suffix('.yml')
+                
+            if candidate.exists():
+                full_path = candidate
+            else:
+                # Strategy 3: Check common template locations
+                common_paths = [
+                    self.base_dir / "templates" / import_path,
+                    self.base_dir / "_base" / import_path,
+                    self.base_dir / "shared" / import_path
+                ]
+                
+                for candidate in common_paths:
+                    if not candidate.suffix:
+                        candidate = candidate.with_suffix('.yml')
+                    if candidate.exists():
+                        full_path = candidate
+                        break
+        
+        if not full_path:
+            raise FileNotFoundError(f"Import file not found: {import_path}")
             
         # Load the imported file
-        imported_data = self.parse_file(full_path)
+        imported_data = self.parse_file(str(full_path))
         
         # Store in cache with appropriate namespace
         cache_key = alias if alias else str(full_path)

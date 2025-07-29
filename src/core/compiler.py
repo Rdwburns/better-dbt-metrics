@@ -498,7 +498,11 @@ class BetterDBTCompiler:
             
             for metric in metrics:
                 # Add dimensions
-                for dim in metric.get('dimensions', []):
+                dimensions = metric.get('dimensions', [])
+                if not isinstance(dimensions, list):
+                    continue
+                    
+                for dim in dimensions:
                     # Skip unresolved references
                     if isinstance(dim, dict) and '$ref' in dim:
                         continue
@@ -749,8 +753,11 @@ class BetterDBTCompiler:
                 for id_col in id_columns:
                     # Check if any dimension uses this column
                     for metric in metrics:
-                        for dim in metric.get('dimensions', []):
-                            if dim.get('name') == id_col or dim.get('expr', '').lower() == id_col.lower():
+                        dimensions = metric.get('dimensions', [])
+                        if not isinstance(dimensions, list):
+                            continue
+                        for dim in dimensions:
+                            if isinstance(dim, dict) and (dim.get('name') == id_col or dim.get('expr', '').lower() == id_col.lower()):
                                 if id_col not in entity_names:
                                     entity_names.add(id_col)
                                     entities.append({
@@ -812,21 +819,23 @@ class BetterDBTCompiler:
                             
             # Also check time dimensions for implicit time spine needs
             elif 'dimensions' in metric:
-                for dim in metric.get('dimensions', []):
-                    if isinstance(dim, dict) and dim.get('type') == 'time':
-                        # If metric has time dimensions but no explicit spine, 
-                        # check if default spine exists
-                        if 'default' in self.time_spines and 'default' not in seen_spines:
-                            seen_spines.add('default')
-                            default_spine = self.time_spines['default']
-                            
-                            for grain, column in default_spine.get('columns', {}).items():
-                                grain_type = grain.split('_')[-1] if '_' in grain else grain
-                                config = {
-                                    'location': default_spine['model'],
-                                    'column_name': column,
-                                    'grain': grain_type
-                                }
+                dimensions = metric.get('dimensions', [])
+                if isinstance(dimensions, list):
+                    for dim in dimensions:
+                        if isinstance(dim, dict) and dim.get('type') == 'time':
+                            # If metric has time dimensions but no explicit spine, 
+                            # check if default spine exists
+                            if 'default' in self.time_spines and 'default' not in seen_spines:
+                                seen_spines.add('default')
+                                default_spine = self.time_spines['default']
+                                
+                                for grain, column in default_spine.get('columns', {}).items():
+                                    grain_type = grain.split('_')[-1] if '_' in grain else grain
+                                    config = {
+                                        'location': default_spine['model'],
+                                        'column_name': column,
+                                        'grain': grain_type
+                                    }
                                 if 'meta' in default_spine:
                                     config['meta'] = default_spine['meta']
                                 time_spine_configs.append(config)
