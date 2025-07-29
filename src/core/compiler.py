@@ -341,14 +341,33 @@ class BetterDBTCompiler:
             
         # Also process metric_time in numerator/denominator for ratio metrics
         if metric_def.get('type') == 'ratio':
-            if 'numerator' in metric_def and 'dimensions' in metric_def['numerator']:
-                metric_def['numerator']['dimensions'] = self._process_metric_time_dimensions(
-                    metric_def['numerator']['dimensions']
-                )
-            if 'denominator' in metric_def and 'dimensions' in metric_def['denominator']:
-                metric_def['denominator']['dimensions'] = self._process_metric_time_dimensions(
-                    metric_def['denominator']['dimensions']
-                )
+            # Ensure numerator is a dict
+            if 'numerator' in metric_def:
+                if not isinstance(metric_def['numerator'], dict):
+                    if self.config.debug:
+                        print(f"[DEBUG] Converting numerator to dict format for {metric_def.get('name')}")
+                        print(f"[DEBUG] Original numerator: {metric_def['numerator']}")
+                    # Convert simple format to dict
+                    metric_def['numerator'] = {'value': metric_def['numerator']}
+                    
+                if 'dimensions' in metric_def['numerator']:
+                    metric_def['numerator']['dimensions'] = self._process_metric_time_dimensions(
+                        metric_def['numerator']['dimensions']
+                    )
+                    
+            # Ensure denominator is a dict
+            if 'denominator' in metric_def:
+                if not isinstance(metric_def['denominator'], dict):
+                    if self.config.debug:
+                        print(f"[DEBUG] Converting denominator to dict format for {metric_def.get('name')}")
+                        print(f"[DEBUG] Original denominator: {metric_def['denominator']}")
+                    # Convert simple format to dict
+                    metric_def['denominator'] = {'value': metric_def['denominator']}
+                    
+                if 'dimensions' in metric_def['denominator']:
+                    metric_def['denominator']['dimensions'] = self._process_metric_time_dimensions(
+                        metric_def['denominator']['dimensions']
+                    )
         
         # Only add source if it exists (not all metric types have source)
         if 'source' in metric_def:
@@ -403,6 +422,13 @@ class BetterDBTCompiler:
             for key, value in metric_def.items():
                 if key != '$use':
                     expanded[key] = value
+                    
+            if self.config.debug:
+                print(f"[DEBUG] Final expanded metric: {expanded.get('name')}")
+                if 'numerator' in expanded:
+                    print(f"[DEBUG] Numerator type after expansion: {type(expanded['numerator'])}")
+                if 'denominator' in expanded:
+                    print(f"[DEBUG] Denominator type after expansion: {type(expanded['denominator'])}")
                     
             return expanded
         
@@ -789,17 +815,39 @@ class BetterDBTCompiler:
                         
                 # Add measures for ratio metrics
                 if metric['type'] == 'ratio' and 'numerator' in metric and 'denominator' in metric:
-                    # Numerator measure
-                    num_measure_name = f"{metric['name']}_numerator"
-                    if num_measure_name not in measure_names:
-                        measure_names.add(num_measure_name)
-                        all_measures.append(self._to_dbt_measure(metric['numerator']['measure'], num_measure_name))
-                    
-                    # Denominator measure
-                    den_measure_name = f"{metric['name']}_denominator"
-                    if den_measure_name not in measure_names:
-                        measure_names.add(den_measure_name)
-                        all_measures.append(self._to_dbt_measure(metric['denominator']['measure'], den_measure_name))
+                    try:
+                        # Numerator measure
+                        num_measure_name = f"{metric['name']}_numerator"
+                        if num_measure_name not in measure_names:
+                            measure_names.add(num_measure_name)
+                            # Check if numerator is a dict with measure key
+                            if isinstance(metric['numerator'], dict) and 'measure' in metric['numerator']:
+                                all_measures.append(self._to_dbt_measure(metric['numerator']['measure'], num_measure_name))
+                            else:
+                                # Handle simple format or missing measure
+                                if self.config.debug:
+                                    print(f"[DEBUG] Skipping numerator measure for {metric['name']} - invalid format")
+                                    print(f"[DEBUG] Numerator type: {type(metric['numerator'])}")
+                                    print(f"[DEBUG] Numerator value: {metric['numerator']}")
+                        
+                        # Denominator measure
+                        den_measure_name = f"{metric['name']}_denominator"
+                        if den_measure_name not in measure_names:
+                            measure_names.add(den_measure_name)
+                            # Check if denominator is a dict with measure key
+                            if isinstance(metric['denominator'], dict) and 'measure' in metric['denominator']:
+                                all_measures.append(self._to_dbt_measure(metric['denominator']['measure'], den_measure_name))
+                            else:
+                                # Handle simple format or missing measure
+                                if self.config.debug:
+                                    print(f"[DEBUG] Skipping denominator measure for {metric['name']} - invalid format")
+                                    print(f"[DEBUG] Denominator type: {type(metric['denominator'])}")
+                                    print(f"[DEBUG] Denominator value: {metric['denominator']}")
+                    except Exception as e:
+                        if self.config.debug:
+                            print(f"[DEBUG] Error processing ratio measures for {metric['name']}: {e}")
+                            import traceback
+                            traceback.print_exc()
                         
             # Create semantic model
             semantic_model = {
