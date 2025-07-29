@@ -191,7 +191,7 @@ class BetterDBTCompiler:
     def _compile_metric(self, metric_def: Dict[str, Any]) -> Dict[str, Any]:
         """Compile a single metric definition"""
         # Handle template expansion
-        if 'template' in metric_def or 'extends' in metric_def:
+        if 'template' in metric_def or 'extends' in metric_def or '$use' in metric_def:
             metric_def = self._expand_metric_template(metric_def)
             
         # Expand dimension groups first
@@ -225,7 +225,19 @@ class BetterDBTCompiler:
             
         # Expand dimension references
         if 'dimensions' in metric_def:
-            metric_def['dimensions'] = self._expand_dimensions(metric_def['dimensions'])
+            dims = metric_def['dimensions']
+            # Handle unresolved $ref
+            if isinstance(dims, dict) and '$ref' in dims:
+                # Try to resolve it here if parser didn't
+                ref_path = dims['$ref']
+                if ref_path.startswith('_base.dimension_groups.'):
+                    group_name = ref_path.split('.')[-1]
+                    try:
+                        dims = self.dimension_groups.get_dimensions_for_group(group_name)
+                    except:
+                        # If not found, try without _base prefix
+                        dims = []
+            metric_def['dimensions'] = self._expand_dimensions(dims)
             
         # Add default fields
         compiled = {
@@ -268,7 +280,34 @@ class BetterDBTCompiler:
         
     def _expand_metric_template(self, metric_def: Dict[str, Any]) -> Dict[str, Any]:
         """Expand metric that uses template or extends"""
-        if 'template' in metric_def:
+        # Handle $use (similar to template but with dot notation)
+        if '$use' in metric_def:
+            template_ref = metric_def['$use']
+            params = metric_def.copy()
+            params.pop('$use')  # Remove $use from params
+            
+            # Extract template name from reference like "templates.margin_metric"
+            if '.' in template_ref:
+                parts = template_ref.split('.')
+                template_name = parts[-1]
+            else:
+                template_name = template_ref
+            
+            # Expand template
+            try:
+                expanded = self.templates.expand(template_name, params)
+            except Exception:
+                # Template might not be found, return as-is
+                return metric_def
+            
+            # Merge with metric definition (metric fields override template)
+            for key, value in metric_def.items():
+                if key != '$use':
+                    expanded[key] = value
+                    
+            return expanded
+        
+        elif 'template' in metric_def:
             template_name = metric_def['template']
             params = metric_def.get('params', metric_def.get('parameters', {}))
             

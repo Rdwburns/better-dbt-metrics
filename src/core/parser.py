@@ -215,9 +215,22 @@ class BetterDBTParser:
             current = self.imports_cache[parts[0]]
             parts = parts[1:]
         else:
-            # Check current document (not yet implemented fully)
-            # For now, we'll let the compiler handle these references
-            return {'$ref': ref_path}
+            # Try to match import paths for _base references
+            if parts[0] == '_base' and len(parts) > 1:
+                # Look for imports that end with the second part
+                # e.g., _base.dimension_groups -> look for imports ending with dimension_groups
+                for cache_key, data in self.imports_cache.items():
+                    if cache_key.endswith(parts[1]) or cache_key.endswith(f"/{parts[1]}"):
+                        current = data
+                        parts = parts[2:]  # Skip _base and dimension_groups
+                        break
+                else:
+                    # Not found, return reference for compiler
+                    return {'$ref': ref_path}
+            else:
+                # Check current document (not yet implemented fully)
+                # For now, we'll let the compiler handle these references
+                return {'$ref': ref_path}
             
         # Navigate the path
         for part in parts:
