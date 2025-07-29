@@ -36,7 +36,7 @@ class BetterDBTCompiler:
     
     def __init__(self, config: CompilerConfig):
         self.config = config
-        self.parser = BetterDBTParser(base_dir=".")
+        self.parser = BetterDBTParser(base_dir=".", debug=config.debug)
         self.templates = TemplateLibrary(config.template_dirs)
         self.dimension_groups = DimensionGroupManager()
         
@@ -78,6 +78,14 @@ class BetterDBTCompiler:
             try:
                 self.compile_file(yaml_file)
             except Exception as e:
+                if self.config.debug:
+                    print(f"\n[DEBUG] Error compiling {yaml_file}:")
+                    print(f"[DEBUG] Error type: {type(e).__name__}")
+                    print(f"[DEBUG] Error message: {str(e)}")
+                    if "'list' object has no attribute 'get'" in str(e):
+                        import traceback
+                        print(f"[DEBUG] Full traceback:")
+                        traceback.print_exc()
                 results['errors'].append({
                     'file': str(yaml_file),
                     'error': str(e)
@@ -98,6 +106,9 @@ class BetterDBTCompiler:
         
     def compile_file(self, file_path: Path) -> Dict[str, Any]:
         """Compile a single metrics file"""
+        if self.config.debug:
+            print(f"\n[DEBUG] === Compiling file: {file_path} ===")
+        
         # Parse file with imports and references
         parsed_data = self.parser.parse_file(str(file_path))
         

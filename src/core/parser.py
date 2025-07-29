@@ -37,12 +37,13 @@ class BetterDBTParser:
     - Variable substitution
     """
     
-    def __init__(self, base_dir: str = "."):
+    def __init__(self, base_dir: str = ".", debug: bool = False):
         self.base_dir = Path(base_dir)
         self.imports_cache: Dict[str, Any] = {}
         self.current_file: Optional[Path] = None
         self.import_stack: Set[str] = set()  # Prevent circular imports
         self.current_data: Dict[str, Any] = {}  # Store current file data for access by compiler
+        self.debug = debug
         
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """Parse a better-dbt-metrics YAML file with all advanced features"""
@@ -133,6 +134,9 @@ class BetterDBTParser:
             path_part, alias_part = import_path.split(' as ', 1)
             import_path = path_part.strip()
             alias = alias_part.strip()
+        
+        if self.debug:
+            print(f"[DEBUG] Attempting to import: {import_path} (from {base_dir})")
             
         # Resolve import paths - try multiple strategies
         full_path = None
@@ -141,6 +145,12 @@ class BetterDBTParser:
         if import_path.startswith('.'):
             candidate = (base_dir / import_path[1:]).resolve()
         else:
+            candidate = (base_dir / import_path).resolve()
+        
+        # Handle _base.templates style imports
+        if import_path.startswith('_base.'):
+            # Convert _base.templates to _base/templates
+            import_path = import_path.replace('.', '/')
             candidate = (base_dir / import_path).resolve()
             
         if not candidate.suffix:
@@ -161,7 +171,8 @@ class BetterDBTParser:
                 common_paths = [
                     self.base_dir / "templates" / import_path,
                     self.base_dir / "_base" / import_path,
-                    self.base_dir / "shared" / import_path
+                    self.base_dir / "shared" / import_path,
+                    self.base_dir / "metrics" / "_base" / import_path,  # For metrics/_base structure
                 ]
                 
                 for candidate in common_paths:
