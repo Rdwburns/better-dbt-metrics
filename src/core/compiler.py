@@ -716,20 +716,35 @@ class BetterDBTCompiler:
                 
     def _generate_output(self) -> Dict[str, Any]:
         """Generate the final dbt output"""
-        # Generate semantic models from metrics grouped by source
-        self._generate_semantic_models()
-        
-        # Generate metric definitions
-        dbt_metrics = []
-        for metric in self.compiled_metrics:
-            dbt_metric = self._to_dbt_metric(metric)
-            dbt_metrics.append(dbt_metric)
+        try:
+            # Generate semantic models from metrics grouped by source
+            self._generate_semantic_models()
             
-        return {
-            'version': 2,
-            'semantic_models': self.semantic_models,
-            'metrics': dbt_metrics
-        }
+            # Generate metric definitions
+            dbt_metrics = []
+            for metric in self.compiled_metrics:
+                try:
+                    dbt_metric = self._to_dbt_metric(metric)
+                    dbt_metrics.append(dbt_metric)
+                except Exception as e:
+                    if self.config.debug:
+                        print(f"\n[DEBUG] Error converting metric to dbt format: {metric.get('name', 'unknown')}")
+                        print(f"[DEBUG] Error: {e}")
+                    raise
+            
+            return {
+                'version': 2,
+                'semantic_models': self.semantic_models,
+                'metrics': dbt_metrics
+            }
+        except Exception as e:
+            if self.config.debug:
+                print(f"\n[DEBUG] Error in _generate_output:")
+                print(f"[DEBUG] Error type: {type(e).__name__}")
+                print(f"[DEBUG] Error: {e}")
+                import traceback
+                traceback.print_exc()
+            raise
         
     def _generate_semantic_models(self):
         """Generate dbt semantic models from compiled metrics"""
@@ -1281,12 +1296,21 @@ class BetterDBTCompiler:
         
     def _to_dbt_metric(self, metric: Dict[str, Any]) -> Dict[str, Any]:
         """Convert compiled metric to dbt metric format"""
-        dbt_metric = {
-            'name': metric['name'],
-            'description': metric['description'],
-            'type': metric['type'],
-            'label': metric.get('label', metric['name'])
-        }
+        try:
+            dbt_metric = {
+                'name': metric['name'],
+                'description': metric['description'],
+                'type': metric['type'],
+                'label': metric.get('label', metric['name'])
+            }
+        except (KeyError, TypeError) as e:
+            if self.config.debug:
+                print(f"\n[DEBUG] Error in _to_dbt_metric for metric: {metric}")
+                print(f"[DEBUG] Metric type: {type(metric)}")
+                print(f"[DEBUG] Error: {e}")
+                import traceback
+                traceback.print_exc()
+            raise TypeError(f"Invalid metric structure: {e}")
         
         # Add type-specific parameters
         if metric['type'] == 'simple':
