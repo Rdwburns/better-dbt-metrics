@@ -273,15 +273,46 @@ class BetterDBTCompiler:
                 
                 # Provide specific guidance based on metric type
                 if metric_type == 'ratio':
-                    raise ValueError(
-                        f"Ratio metric '{metric_name}' is missing a source. "
-                        f"Please add either:\n"
-                        f"  1. A top-level 'source' field to the metric, OR\n"
-                        f"  2. Both 'numerator.source' and 'denominator.source' fields"
-                    )
+                    # For ratio metrics, check if numerator/denominator have sources
+                    num_source = compiled_metric.get('numerator', {}).get('source')
+                    den_source = compiled_metric.get('denominator', {}).get('source')
+                    
+                    if num_source and den_source:
+                        # If both have sources, use a composite source identifier
+                        # This allows ratio metrics with different sources to work
+                        if num_source == den_source:
+                            source = num_source
+                        else:
+                            # For different sources, we'll handle them separately in semantic model generation
+                            source = f"ratio_{metric_name}"
+                    else:
+                        raise ValueError(
+                            f"Ratio metric '{metric_name}' is missing source information. "
+                            f"Please add either:\n"
+                            f"  1. A top-level 'source' field to the metric, OR\n"
+                            f"  2. Both 'numerator.source' and 'denominator.source' fields\n"
+                            f"Current state: numerator.source={num_source}, denominator.source={den_source}"
+                        )
                 elif metric_type == 'derived':
                     # Derived metrics don't need a source
                     source = 'derived'
+                elif metric_type == 'conversion':
+                    # Conversion metrics may have sources in base_measure and conversion_measure
+                    base_source = compiled_metric.get('base_measure', {}).get('source')
+                    conv_source = compiled_metric.get('conversion_measure', {}).get('source')
+                    
+                    if base_source and conv_source:
+                        if base_source == conv_source:
+                            source = base_source
+                        else:
+                            # For different sources, use a composite identifier
+                            source = f"conversion_{metric_name}"
+                    else:
+                        raise ValueError(
+                            f"Conversion metric '{metric_name}' is missing source information. "
+                            f"Both 'base_measure.source' and 'conversion_measure.source' are required.\n"
+                            f"Current state: base_measure.source={base_source}, conversion_measure.source={conv_source}"
+                        )
                 else:
                     raise ValueError(
                         f"Metric '{metric_name}' of type '{metric_type}' is missing required 'source' field"
@@ -493,6 +524,43 @@ class BetterDBTCompiler:
                     metric_def['source'] = num_source
                     if self.config.debug:
                         print(f"[DEBUG] Auto-setting source '{num_source}' for ratio metric '{metric_def.get('name')}' from matching numerator/denominator sources")
+                else:
+                    # For different sources, we'll use a composite identifier
+                    # This will be handled specially in semantic model generation
+                    metric_def['source'] = f"ratio_{metric_def.get('name')}"
+                    if self.config.debug:
+                        print(f"[DEBUG] Setting composite source 'ratio_{metric_def.get('name')}' for ratio metric with different numerator/denominator sources")
+        
+        # Handle conversion metrics similarly
+        if metric_def.get('type') == 'conversion':
+            # Validate conversion metric has proper structure
+            if 'base_measure' not in metric_def or 'conversion_measure' not in metric_def:
+                raise ValueError(
+                    f"Conversion metric '{metric_def.get('name')}' must have both 'base_measure' and 'conversion_measure' fields"
+                )
+            
+            # Check if source is already set at metric level
+            if 'source' not in metric_def:
+                base_source = metric_def.get('base_measure', {}).get('source')
+                conv_source = metric_def.get('conversion_measure', {}).get('source')
+                
+                if not base_source or not conv_source:
+                    raise ValueError(
+                        f"Conversion metric '{metric_def.get('name')}' must have sources in both "
+                        f"'base_measure.source' and 'conversion_measure.source' fields\n"
+                        f"Current state: base_measure.source={base_source}, conversion_measure.source={conv_source}"
+                    )
+                
+                # If both have sources and they're the same, use that as the metric source
+                if base_source == conv_source:
+                    metric_def['source'] = base_source
+                    if self.config.debug:
+                        print(f"[DEBUG] Auto-setting source '{base_source}' for conversion metric '{metric_def.get('name')}' from matching base/conversion sources")
+                else:
+                    # For different sources, we'll use a composite identifier
+                    metric_def['source'] = f"conversion_{metric_def.get('name')}"
+                    if self.config.debug:
+                        print(f"[DEBUG] Setting composite source 'conversion_{metric_def.get('name')}' for conversion metric with different base/conversion sources")
         
         # Only add source if it exists (not all metric types have source)
         if 'source' in metric_def:
@@ -929,6 +997,96 @@ class BetterDBTCompiler:
                 if source not in self.metrics_by_source:
                     self.metrics_by_source[source] = []
                 self.metrics_by_source[source].append(variant)
+                
+        # Custom variants with multiple dimensions or filters
+        # Handle all other auto_variant types as custom variants
+        for variant_type, variant_configs in auto_config.items():
+            if variant_type in ['time_comparison', 'by_dimension']:
+                continue  # Already handled above
+                
+            # Check if it's a list of variant configurations
+            if isinstance(variant_configs, list):
+                for idx, variant_config in enumerate(variant_configs):
+                    if not isinstance(variant_config, dict):
+                        continue
+                        
+                    variant = deepcopy(metric)
+                    
+                    # Generate variant name
+                    if 'name_suffix' in variant_config:
+                        variant['name'] = f"{base_name}{variant_config['name_suffix']}"
+                    elif 'label_suffix' in variant_config:
+                        variant['name'] = f"{base_name}{variant_config['label_suffix']}"
+                    else:
+                        # Auto-generate suffix from variant type and index
+                        variant['name'] = f"{base_name}_{variant_type}_{idx}"
+                    
+                    # Update description
+                    if 'description_suffix' in variant_config:
+                        variant['description'] = f"{metric['description']} {variant_config['description_suffix']}"
+                    else:
+                        variant['description'] = f"{metric['description']} - {variant_type} variant"
+                    
+                    # Add dimensions if specified
+                    if 'dimensions' in variant_config:
+                        if 'dimensions' not in variant:
+                            variant['dimensions'] = []
+                        
+                        # Handle both list and dict formats
+                        new_dims = variant_config['dimensions']
+                        if isinstance(new_dims, list):
+                            for dim in new_dims:
+                                # Check if dimension already exists
+                                if isinstance(dim, str):
+                                    dim_name = dim
+                                else:
+                                    dim_name = dim.get('name', '')
+                                    
+                                if not any((d.get('name') if isinstance(d, dict) else d) == dim_name for d in variant['dimensions']):
+                                    variant['dimensions'].append(dim)
+                    
+                    # Add filters if specified
+                    if 'filter' in variant_config:
+                        # Combine with existing filter if present
+                        if 'filter' in variant:
+                            variant['filter'] = f"({variant['filter']}) AND ({variant_config['filter']})"
+                        else:
+                            variant['filter'] = variant_config['filter']
+                    
+                    # Handle filter as key-value pairs (e.g., shop_code: shopify)
+                    filter_parts = []
+                    for key, value in variant_config.items():
+                        if key not in ['name_suffix', 'label_suffix', 'description_suffix', 
+                                      'dimensions', 'filter', 'name', 'description']:
+                            # These are filter conditions
+                            if isinstance(value, str):
+                                filter_parts.append(f"{key} = '{value}'")
+                            else:
+                                filter_parts.append(f"{key} = {value}")
+                    
+                    if filter_parts:
+                        filter_str = " AND ".join(filter_parts)
+                        if 'filter' in variant:
+                            variant['filter'] = f"({variant['filter']}) AND ({filter_str})"
+                        else:
+                            variant['filter'] = filter_str
+                    
+                    # Add any other custom fields
+                    for key, value in variant_config.items():
+                        if key not in ['name_suffix', 'label_suffix', 'description_suffix', 
+                                      'dimensions', 'filter'] and key not in variant:
+                            variant[key] = value
+                    
+                    self.compiled_metrics.append(variant)
+                    # Also add to metrics_by_source
+                    source = variant.get('source')
+                    if not source:
+                        # For auto-variants, inherit source from parent metric
+                        source = metric.get('source', 'derived')
+                        variant['source'] = source
+                    if source not in self.metrics_by_source:
+                        self.metrics_by_source[source] = []
+                    self.metrics_by_source[source].append(variant)
                 
     def _generate_output(self) -> Dict[str, Any]:
         """Generate the final dbt output"""
