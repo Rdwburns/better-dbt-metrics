@@ -184,14 +184,20 @@ class BetterDBTCompiler:
                 
                 compiled_metric = self._compile_metric(metric)
                 self.compiled_metrics.append(compiled_metric)
-            except AttributeError as e:
+            except (AttributeError, TypeError) as e:
+                metric_name = metric.get('name', 'unknown')
+                if self.config.debug:
+                    import traceback
+                    print(f"\n[DEBUG] Error compiling metric '{metric_name}'")
+                    print(f"[DEBUG] Error type: {type(e).__name__}")
+                    print(f"[DEBUG] Error message: {str(e)}")
+                    print(f"\n[DEBUG] Full traceback:")
+                    traceback.print_exc()
+                    
                 if "'list' object has no attribute 'get'" in str(e):
-                    metric_name = metric.get('name', 'unknown')
-                    if self.config.debug:
-                        import traceback
-                        print(f"\n[DEBUG] Full traceback:")
-                        traceback.print_exc()
                     raise AttributeError(f"Error compiling metric '{metric_name}': {e}. Check that dimensions are properly formatted.")
+                elif "string indices must be integers" in str(e):
+                    raise TypeError(f"Error compiling metric '{metric_name}': {e}. Check metric structure and dimension references.")
                 raise
             
             # Group by source for semantic model generation
@@ -569,6 +575,10 @@ class BetterDBTCompiler:
                         
                         # Register with alias prefix
                         full_name = f"{alias}.{name}"
+                        if self.config.debug:
+                            print(f"[DEBUG] Registering dimension group: {full_name}")
+                            if 'dimensions' in adjusted_group:
+                                print(f"[DEBUG] Number of dimensions: {len(adjusted_group['dimensions'])}")
                         self.dimension_groups.register_group(full_name, adjusted_group)
                         
                 elif isinstance(dimension_groups, list):
@@ -597,6 +607,10 @@ class BetterDBTCompiler:
                         
                         # Register with alias prefix
                         full_name = f"{alias}.{name}"
+                        if self.config.debug:
+                            print(f"[DEBUG] Registering dimension group: {full_name}")
+                            if 'dimensions' in adjusted_group:
+                                print(f"[DEBUG] Number of dimensions: {len(adjusted_group['dimensions'])}")
                         self.dimension_groups.register_group(full_name, adjusted_group)
                     
     def _register_imported_templates(self):

@@ -236,7 +236,14 @@ class DimensionGroupManager:
     def get_dimensions_for_group(self, group_name: str) -> List[Dict[str, Any]]:
         """Get dimensions for a specific group"""
         if group_name not in self.groups:
-            raise ValueError(f"Dimension group '{group_name}' not found")
+            # Try without the full path prefix
+            available_groups = list(self.groups.keys())
+            for key in available_groups:
+                if key.endswith(f".{group_name}"):
+                    group_name = key
+                    break
+            else:
+                raise ValueError(f"Dimension group '{group_name}' not found. Available groups: {available_groups}")
             
         # Ensure inheritance is resolved
         if not self._inheritance_resolved:
