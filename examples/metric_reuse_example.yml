@@ -1,0 +1,148 @@
+# Example: Metric Reuse and Deduplication
+version: 2
+
+# First, define some base metrics that can be reused
+metrics:
+  # Base revenue metric
+  - name: total_revenue
+    description: "Total revenue from all orders"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: date
+        type: time
+        grain: day
+
+  # Base cost metric  
+  - name: total_cost
+    description: "Total cost of goods sold"
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: cost_total
+    dimensions:
+      - name: date
+        type: time
+        grain: day
+
+  # Profit margin using existing metrics
+  - name: profit_margin
+    description: "Profit margin percentage"
+    type: ratio
+    numerator:
+      source: fct_orders
+      measure:
+        type: sum
+        column: order_total
+      # This will be deduplicated to use 'total_revenue' metric
+    denominator:
+      source: fct_orders
+      measure:
+        type: sum
+        column: order_total
+      # This will also use 'total_revenue' metric
+
+  # Another margin metric that reuses the same components
+  - name: gross_margin
+    description: "Gross margin percentage"
+    type: ratio
+    numerator:
+      # Profit calculation
+      source: fct_orders
+      measure:
+        type: sum
+        column: order_total
+        filter: "order_total - cost_total"  # Different filter creates unique metric
+    denominator:
+      source: fct_orders
+      measure:
+        type: sum
+        column: order_total
+      # This will reuse 'total_revenue' metric
+
+# Template that creates metrics with references
+metric_templates:
+  kpi_with_target:
+    parameters:
+      - name: base_metric
+        type: string
+        description: "Name of the base metric to track"
+      - name: target_value
+        type: number
+        description: "Target value for the KPI"
+      - name: comparison_type
+        type: string
+        default: "higher_is_better"
+    template:
+      type: derived
+      description: "{{ base_metric }} with target tracking"
+      expression: |
+        metric('{{ base_metric }}')
+      meta:
+        target: "{{ target_value }}"
+        comparison: "{{ comparison_type }}"
+
+  ratio_from_metrics:
+    parameters:
+      - name: numerator_metric
+        type: string
+        description: "Name of the numerator metric"
+      - name: denominator_metric
+        type: string
+        description: "Name of the denominator metric"
+      - name: format_as_percentage
+        type: boolean
+        default: true
+    template:
+      type: derived
+      description: "Ratio of {{ numerator_metric }} to {{ denominator_metric }}"
+      expression: |
+        metric('{{ numerator_metric }}') / metric('{{ denominator_metric }}')
+      {% if format_as_percentage %}
+      format:
+        type: percentage
+        decimal_places: 2
+      {% endif %}
+
+# Using templates with metric references
+metrics:
+  # KPI tracking for revenue
+  - name: revenue_kpi
+    template: kpi_with_target
+    parameters:
+      base_metric: total_revenue
+      target_value: 1000000
+      comparison_type: higher_is_better
+
+  # Custom ratio using existing metrics
+  - name: cost_to_revenue_ratio
+    template: ratio_from_metrics
+    parameters:
+      numerator_metric: total_cost
+      denominator_metric: total_revenue
+      format_as_percentage: true
+
+# Advanced example: Referencing metrics in derived metrics
+metrics:
+  - name: revenue_growth_rate
+    description: "Month-over-month revenue growth rate"
+    type: derived
+    expression: |
+      (metric('total_revenue') - metric('total_revenue', offset_window=mom)) 
+      / metric('total_revenue', offset_window=mom)
+    format:
+      type: percentage
+      decimal_places: 1
+
+  - name: profit_after_tax
+    description: "Profit after applying tax rate"
+    type: derived
+    expression: |
+      (metric('total_revenue') - metric('total_cost')) * 0.8
+    meta:
+      tax_rate: 0.2
+      formula: "(revenue - cost) * (1 - tax_rate)"

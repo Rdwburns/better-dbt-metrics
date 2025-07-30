@@ -1098,29 +1098,44 @@ class BetterDBTCompiler:
             # Generate semantic models from metrics grouped by source
             self._generate_semantic_models()
             
-            # Generate metric definitions
+            # Generate metric definitions with deduplication
             dbt_metrics = []
+            metric_signatures = {}  # Track unique metrics by their signature
+            metric_aliases = {}     # Map duplicate metrics to their canonical names
+            
+            # First pass: identify unique metrics and create aliases
+            for metric in self.compiled_metrics:
+                signature = self._get_metric_signature(metric)
+                if signature in metric_signatures:
+                    # This is a duplicate - create an alias
+                    canonical_name = metric_signatures[signature]
+                    metric_aliases[metric['name']] = canonical_name
+                    if self.config.debug:
+                        print(f"[DEBUG] Metric '{metric['name']}' is a duplicate of '{canonical_name}'")
+                else:
+                    # This is a new unique metric
+                    metric_signatures[signature] = metric['name']
+            
+            # Second pass: create metrics (skipping duplicates)
             for metric in self.compiled_metrics:
                 try:
+                    # Skip if this is a duplicate
+                    if metric['name'] in metric_aliases:
+                        continue
+                    
                     # For ratio metrics, we need to create component metrics first
                     if metric['type'] == 'ratio' and 'numerator' in metric and 'denominator' in metric:
-                        # Create numerator metric
-                        num_metric = self._create_component_metric(
-                            metric, 
-                            'numerator',
-                            f"{metric['name']}_numerator"
+                        # Check if we can reuse existing metrics for components
+                        num_metric_name = self._find_or_create_component_metric(
+                            metric, 'numerator', dbt_metrics, metric_signatures
                         )
-                        if num_metric:
-                            dbt_metrics.append(num_metric)
+                        den_metric_name = self._find_or_create_component_metric(
+                            metric, 'denominator', dbt_metrics, metric_signatures
+                        )
                         
-                        # Create denominator metric
-                        den_metric = self._create_component_metric(
-                            metric,
-                            'denominator', 
-                            f"{metric['name']}_denominator"
-                        )
-                        if den_metric:
-                            dbt_metrics.append(den_metric)
+                        # Update the metric to use the deduplicated component names
+                        metric['_num_metric_ref'] = num_metric_name
+                        metric['_den_metric_ref'] = den_metric_name
                     
                     # Convert the main metric
                     dbt_metric = self._to_dbt_metric(metric)
@@ -1130,6 +1145,9 @@ class BetterDBTCompiler:
                         print(f"\n[DEBUG] Error converting metric to dbt format: {metric.get('name', 'unknown')}")
                         print(f"[DEBUG] Error: {e}")
                     raise
+            
+            # Store aliases for reference
+            self.metric_aliases = metric_aliases
             
             return {
                 'version': 2,
@@ -1796,10 +1814,9 @@ class BetterDBTCompiler:
         elif metric['type'] == 'ratio':
             # Handle ratio metrics
             if 'numerator' in metric and 'denominator' in metric:
-                # In dbt semantic layer, ratio metrics reference other metrics, not measures
-                # We need to create the component metrics separately
-                num_metric_name = f"{metric['name']}_numerator"
-                den_metric_name = f"{metric['name']}_denominator"
+                # Use deduplicated component metric names if available
+                num_metric_name = metric.get('_num_metric_ref', f"{metric['name']}_numerator")
+                den_metric_name = metric.get('_den_metric_ref', f"{metric['name']}_denominator")
                 
                 # Simple format if no filters
                 if not metric['numerator'].get('filter') and not metric['denominator'].get('filter'):
@@ -1998,6 +2015,63 @@ class BetterDBTCompiler:
         }
         
         return component_metric
+    
+    def _get_metric_signature(self, metric: Dict[str, Any]) -> str:
+        """Generate a unique signature for a metric based on its configuration"""
+        import hashlib
+        import json
+        
+        # Extract the key fields that define metric uniqueness
+        signature_data = {
+            'type': metric.get('type'),
+            'source': metric.get('source'),
+            'measure': metric.get('measure'),
+            'filter': metric.get('filter'),
+            'dimensions': metric.get('dimensions'),
+            'numerator': metric.get('numerator'),
+            'denominator': metric.get('denominator'),
+            'expression': metric.get('expression'),
+            'formula': metric.get('formula')
+        }
+        
+        # Remove None values and sort for consistency
+        signature_data = {k: v for k, v in signature_data.items() if v is not None}
+        
+        # Create a hash of the configuration
+        signature_str = json.dumps(signature_data, sort_keys=True)
+        return hashlib.md5(signature_str.encode()).hexdigest()
+    
+    def _find_or_create_component_metric(self, parent_metric: Dict[str, Any], component: str, 
+                                       existing_metrics: List[Dict], metric_signatures: Dict) -> str:
+        """Find an existing metric that matches the component or create a new one"""
+        component_data = parent_metric.get(component, {})
+        
+        # Create a temporary metric to get its signature
+        temp_metric = {
+            'type': 'simple',
+            'source': component_data.get('source', parent_metric.get('source')),
+            'measure': component_data.get('measure'),
+            'filter': component_data.get('filter')
+        }
+        
+        signature = self._get_metric_signature(temp_metric)
+        
+        # Check if we already have a metric with this signature
+        if signature in metric_signatures:
+            existing_name = metric_signatures[signature]
+            if self.config.debug:
+                print(f"[DEBUG] Reusing existing metric '{existing_name}' for {component} of '{parent_metric['name']}'")
+            return existing_name
+        
+        # Create a new component metric
+        metric_name = f"{parent_metric['name']}_{component}"
+        component_metric = self._create_component_metric(parent_metric, component, metric_name)
+        
+        if component_metric:
+            existing_metrics.append(component_metric)
+            metric_signatures[signature] = metric_name
+        
+        return metric_name
         
     def _write_split_output(self, output_data: Dict[str, Any]):
         """Write output to separate files"""
