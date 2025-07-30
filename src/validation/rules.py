@@ -360,20 +360,28 @@ class TemplateParameterRule(ValidationRule):
             
             for param in normalized_params:
                 param_name = param['name']
-                # Check for various parameter reference formats
-                param_patterns = [
-                    f"{{{{ {param_name} }}}}",  # {{ param_name }}
-                    f"{{{{{param_name}}}}}",     # {{param_name}}
-                    f"{{{{ {param_name}|",       # {{ param_name|filter }}
-                    f"{{{{{param_name}|",        # {{param_name|filter}}
-                    f"$({param_name})",          # $(param_name)
-                    f'"{{ {param_name} }}"',     # "{{ param_name }}" in JSON
-                    f'"{{{{ {param_name} }}}}"', # "{{ param_name }}" escaped
-                    f'"{{{{{param_name}}}}}"',   # "{{param_name}}" in JSON
+                
+                # For better detection, check if the parameter name appears anywhere in the template
+                # This is more lenient but avoids false positives
+                # We check for the parameter name with word boundaries to avoid partial matches
+                import re
+                
+                # Create patterns that will match the parameter in various Jinja2 contexts
+                patterns = [
+                    # Basic Jinja2 variable reference
+                    rf'\{{\{{\s*{re.escape(param_name)}\s*\}}\}}',  # {{ param_name }}
+                    # With filters
+                    rf'\{{\{{\s*{re.escape(param_name)}\s*\|',      # {{ param_name | filter
+                    # In strings (JSON encoded)
+                    rf'"\{{\{{\s*{re.escape(param_name)}[\s\|}]',   # "{{ param_name }}" or "{{ param_name | filter }}"
+                    # Alternative syntax
+                    rf'\$\(\s*{re.escape(param_name)}\s*\)',        # $(param_name)
+                    # Just the parameter name with word boundaries (last resort)
+                    rf'\b{re.escape(param_name)}\b',                # param_name as a whole word
                 ]
                 
-                # Check if parameter is used in any format
-                param_used = any(pattern in template_str for pattern in param_patterns)
+                # Check if parameter is used with any pattern
+                param_used = any(re.search(pattern, template_str, re.IGNORECASE) for pattern in patterns)
                 
                 if not param_used:
                     result.add_warning(ValidationError(
