@@ -353,10 +353,29 @@ class TemplateParameterRule(ValidationRule):
                         required_params.add(param['name'])
                         
             # Check that template body uses parameters
-            template_str = str(template.get('template', {}))
+            # Convert template to JSON string to properly search for parameter usage
+            import json
+            template_body = template.get('template', {})
+            template_str = json.dumps(template_body) if isinstance(template_body, dict) else str(template_body)
+            
             for param in normalized_params:
                 param_name = param['name']
-                if f"{{{{{param_name}}}}}" not in template_str and f"$({param_name})" not in template_str:
+                # Check for various parameter reference formats
+                param_patterns = [
+                    f"{{{{ {param_name} }}}}",  # {{ param_name }}
+                    f"{{{{{param_name}}}}}",     # {{param_name}}
+                    f"{{{{ {param_name}|",       # {{ param_name|filter }}
+                    f"{{{{{param_name}|",        # {{param_name|filter}}
+                    f"$({param_name})",          # $(param_name)
+                    f'"{{ {param_name} }}"',     # "{{ param_name }}" in JSON
+                    f'"{{{{ {param_name} }}}}"', # "{{ param_name }}" escaped
+                    f'"{{{{{param_name}}}}}"',   # "{{param_name}}" in JSON
+                ]
+                
+                # Check if parameter is used in any format
+                param_used = any(pattern in template_str for pattern in param_patterns)
+                
+                if not param_used:
                     result.add_warning(ValidationError(
                         file_path=str(file_path),
                         message=f"Template parameter '{param_name}' is defined but not used in template '{name}'",
