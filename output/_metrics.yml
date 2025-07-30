@@ -1,4 +1,45 @@
 metrics:
+- description: Total revenue
+  label: Revenue
+  name: test_revenue
+  type: simple
+  type_params:
+    measure: test_revenue_measure
+- description: Total revenue - time_comparisons variant
+  filter: type = 'wow'
+  label: Revenue (WOW)
+  name: test_revenue_wow
+  type: simple
+  type_params:
+    measure: test_revenue_wow_measure
+- description: Total revenue - time_comparisons variant
+  filter: type = 'mom'
+  label: Revenue (MOM)
+  name: test_revenue_mom
+  type: simple
+  type_params:
+    measure: test_revenue_mom_measure
+- description: Total revenue - time_comparisons variant
+  filter: type = 'yoy'
+  label: Revenue (YOY)
+  name: test_revenue_yoy
+  type: simple
+  type_params:
+    measure: test_revenue_yoy_measure
+- description: Total revenue - territory_splits variant
+  filter: territory = 'UK'
+  label: Revenue (UK)
+  name: test_revenue_uk
+  type: simple
+  type_params:
+    measure: test_revenue_uk_measure
+- description: Total revenue - territory_splits variant
+  filter: territory = 'US'
+  label: Revenue (US)
+  name: test_revenue_us
+  type: simple
+  type_params:
+    measure: test_revenue_us_measure
 - config:
     meta:
       component_of: contribution_margin_1_pc

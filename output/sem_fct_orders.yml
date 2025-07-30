@@ -1,7 +1,7 @@
 semantic_models:
 - description: Semantic model for fct_orders
   dimensions:
-  - name: date
+  - name: date_day
     type: time
     type_params:
       time_granularity: day
@@ -11,7 +11,28 @@ semantic_models:
     type: primary
   measures:
   - agg: sum
+    agg_time_dimension: date_day
     expr: revenue
-    name: test_revenue_ref_measure
+    name: test_revenue_measure
+  - agg: sum
+    agg_time_dimension: date_day
+    expr: revenue
+    name: test_revenue_wow_measure
+  - agg: sum
+    agg_time_dimension: date_day
+    expr: revenue
+    name: test_revenue_mom_measure
+  - agg: sum
+    agg_time_dimension: date_day
+    expr: revenue
+    name: test_revenue_yoy_measure
+  - agg: sum
+    agg_time_dimension: date_day
+    expr: revenue
+    name: test_revenue_uk_measure
+  - agg: sum
+    agg_time_dimension: date_day
+    expr: revenue
+    name: test_revenue_us_measure
   model: ref('fct_orders')
   name: sem_fct_orders

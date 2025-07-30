@@ -964,6 +964,9 @@ class BetterDBTCompiler:
                 variant = deepcopy(metric)
                 variant['name'] = f"{base_name}_{period}"
                 variant['description'] = f"{metric['description']} - {period.upper()} comparison"
+                # Update label to avoid duplicates
+                if 'label' in metric:
+                    variant['label'] = f"{metric['label']} ({period.upper()})"
                 variant['type'] = 'time_comparison'
                 variant['comparison'] = {
                     'period': period,
@@ -986,6 +989,9 @@ class BetterDBTCompiler:
                 variant = deepcopy(metric)
                 variant['name'] = f"{base_name}_by_{dim}"
                 variant['description'] = f"{metric['description']} by {dim}"
+                # Update label to avoid duplicates
+                if 'label' in metric:
+                    variant['label'] = f"{metric['label']} (by {dim})"
                 # Add the dimension if not already present
                 if 'dimensions' not in variant:
                     variant['dimensions'] = []
@@ -1030,6 +1036,18 @@ class BetterDBTCompiler:
                         variant['description'] = f"{metric['description']} {variant_config['description_suffix']}"
                     else:
                         variant['description'] = f"{metric['description']} - {variant_type} variant"
+                    
+                    # Update label to avoid duplicates
+                    if 'label' in metric:
+                        if 'label_suffix' in variant_config:
+                            # Clean up the suffix - remove leading underscore and convert to title case
+                            suffix = variant_config['label_suffix'].lstrip('_').replace('_', ' ').upper()
+                            variant['label'] = f"{metric['label']} ({suffix})"
+                        elif 'name_suffix' in variant_config:
+                            suffix = variant_config['name_suffix'].lstrip('_').replace('_', ' ').title()
+                            variant['label'] = f"{metric['label']} ({suffix})"
+                        else:
+                            variant['label'] = f"{metric['label']} ({variant_type.replace('_', ' ').title()})"
                     
                     # Add dimensions if specified
                     if 'dimensions' in variant_config:
@@ -1211,7 +1229,9 @@ class BetterDBTCompiler:
                     measure_name = f"{metric['name']}_measure"
                     if measure_name not in measure_names:
                         measure_names.add(measure_name)
-                        all_measures.append(self._to_dbt_measure(metric['measure'], measure_name))
+                        # Find time dimension from metric dimensions
+                        time_dim = self._find_time_dimension(metric.get('dimensions', []))
+                        all_measures.append(self._to_dbt_measure(metric['measure'], measure_name, time_dim))
                         
                 # Add measures for ratio metrics
                 if metric['type'] == 'ratio' and 'numerator' in metric and 'denominator' in metric:
@@ -1222,7 +1242,9 @@ class BetterDBTCompiler:
                             measure_names.add(num_measure_name)
                             # Check if numerator is a dict with measure key
                             if isinstance(metric['numerator'], dict) and 'measure' in metric['numerator']:
-                                all_measures.append(self._to_dbt_measure(metric['numerator']['measure'], num_measure_name))
+                                # Find time dimension from metric dimensions
+                                time_dim = self._find_time_dimension(metric.get('dimensions', []))
+                                all_measures.append(self._to_dbt_measure(metric['numerator']['measure'], num_measure_name, time_dim))
                             else:
                                 # Handle simple format or missing measure
                                 if self.config.debug:
@@ -1236,7 +1258,9 @@ class BetterDBTCompiler:
                             measure_names.add(den_measure_name)
                             # Check if denominator is a dict with measure key
                             if isinstance(metric['denominator'], dict) and 'measure' in metric['denominator']:
-                                all_measures.append(self._to_dbt_measure(metric['denominator']['measure'], den_measure_name))
+                                # Find time dimension from metric dimensions
+                                time_dim = self._find_time_dimension(metric.get('dimensions', []))
+                                all_measures.append(self._to_dbt_measure(metric['denominator']['measure'], den_measure_name, time_dim))
                             else:
                                 # Handle simple format or missing measure
                                 if self.config.debug:
@@ -1301,8 +1325,10 @@ class BetterDBTCompiler:
                             num_model = self._find_or_create_semantic_model(num_source)
                             num_measure_name = f"{metric['name']}_numerator"
                             if not any(m['name'] == num_measure_name for m in num_model.get('measures', [])):
+                                # Find time dimension from metric dimensions
+                                time_dim = self._find_time_dimension(metric.get('dimensions', []))
                                 num_model['measures'].append(
-                                    self._to_dbt_measure(metric['numerator']['measure'], num_measure_name)
+                                    self._to_dbt_measure(metric['numerator']['measure'], num_measure_name, time_dim)
                                 )
                             
                             # Also add dimensions from the metric to the semantic model
@@ -1320,8 +1346,10 @@ class BetterDBTCompiler:
                             den_model = self._find_or_create_semantic_model(den_source)
                             den_measure_name = f"{metric['name']}_denominator"
                             if not any(m['name'] == den_measure_name for m in den_model.get('measures', [])):
+                                # Find time dimension from metric dimensions
+                                time_dim = self._find_time_dimension(metric.get('dimensions', []))
                                 den_model['measures'].append(
-                                    self._to_dbt_measure(metric['denominator']['measure'], den_measure_name)
+                                    self._to_dbt_measure(metric['denominator']['measure'], den_measure_name, time_dim)
                                 )
                             
                             # Also add dimensions from the metric to the semantic model
@@ -1700,7 +1728,28 @@ class BetterDBTCompiler:
         
         return joins
         
-    def _to_dbt_measure(self, measure: Dict[str, Any], name: str) -> Dict[str, Any]:
+    def _find_time_dimension(self, dimensions: List[Any]) -> Optional[str]:
+        """Find the primary time dimension from a list of dimensions"""
+        if not dimensions:
+            return None
+            
+        # Look for the first time dimension
+        for dim in dimensions:
+            if isinstance(dim, dict):
+                if dim.get('type') == 'time':
+                    return dim.get('name')
+                # Check if it's a common time dimension name
+                dim_name = dim.get('name', '')
+                if any(time_word in dim_name.lower() for time_word in ['date', 'time', 'created', 'updated']):
+                    return dim_name
+            elif isinstance(dim, str):
+                # Check string dimension names
+                if any(time_word in dim.lower() for time_word in ['date', 'time', 'created', 'updated']):
+                    return dim
+                    
+        return None
+    
+    def _to_dbt_measure(self, measure: Dict[str, Any], name: str, time_dimension: Optional[str] = None) -> Dict[str, Any]:
         """Convert measure to dbt format"""
         # Map common measure types to dbt aggregations
         agg_type_mapping = {
@@ -1734,6 +1783,13 @@ class BetterDBTCompiler:
             'agg': dbt_agg,
             'expr': measure.get('column', measure.get('expr', name))
         }
+        
+        # Add aggregation time dimension if available
+        if 'agg_time_dimension' in measure:
+            dbt_measure['agg_time_dimension'] = measure['agg_time_dimension']
+        elif time_dimension:
+            # Use the passed time dimension if no explicit agg_time_dimension
+            dbt_measure['agg_time_dimension'] = time_dimension
         
         # Handle filters
         if 'filters' in measure:

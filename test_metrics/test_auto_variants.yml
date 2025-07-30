@@ -1,0 +1,28 @@
+version: 2
+
+metrics:
+  - name: test_revenue
+    label: Revenue
+    description: 'Total revenue'
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: revenue
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+    auto_variants:
+      time_comparisons:
+        - type: wow
+          label_suffix: _wow
+        - type: mom
+          label_suffix: _mom
+        - type: yoy
+          label_suffix: _yoy
+      territory_splits:
+        - territory: UK
+          label_suffix: _uk
+        - territory: US
+          label_suffix: _us

@@ -13,6 +13,7 @@ semantic_models:
     type: primary
   measures:
   - agg: sum
+    agg_time_dimension: date_day
     expr: cm1
     name: contribution_margin_1_pc_numerator
   model: ref('fct_contribution_margins')

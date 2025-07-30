@@ -13,6 +13,7 @@ semantic_models:
     type: primary
   measures:
   - agg: sum
+    agg_time_dimension: date_day
     expr: net_revenue_gbp
     name: contribution_margin_1_pc_denominator
   model: ref('fct_unified_orders')
