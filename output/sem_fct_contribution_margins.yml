@@ -1,0 +1,59 @@
+semantic_models:
+- description: Semantic model for fct_contribution_margins
+  dimensions:
+  - expr: date_trunc('day', date)
+    name: date_day
+    type: time
+    type_params:
+      time_granularity: day
+  - expr: date_trunc('week', date)
+    name: date_week
+    type: time
+    type_params:
+      time_granularity: day
+  - expr: date_trunc('month', date)
+    name: date_month
+    type: time
+    type_params:
+      time_granularity: day
+  - name: channel
+    type: categorical
+  - name: territory
+    type: categorical
+  - name: shop_code
+    type: categorical
+  - name: product_category
+    type: categorical
+  - name: customer_segment
+    type: categorical
+  entities:
+  - expr: fct_contribution_margins_id
+    name: id
+    type: primary
+  measures:
+  - agg: sum
+    expr: gross_revenue_gbp
+    name: average_order_value_numerator
+  - agg: sum
+    expr: order_count
+    name: average_order_value_denominator
+  - agg: sum
+    expr: gross_revenue_gbp
+    name: average_order_value_shopify_numerator
+  - agg: sum
+    expr: order_count
+    name: average_order_value_shopify_denominator
+  - agg: sum
+    expr: gross_revenue_gbp
+    name: average_order_value_amazon_numerator
+  - agg: sum
+    expr: order_count
+    name: average_order_value_amazon_denominator
+  - agg: sum
+    expr: gross_revenue_gbp
+    name: average_order_value_tiktok_numerator
+  - agg: sum
+    expr: order_count
+    name: average_order_value_tiktok_denominator
+  model: ref('fct_contribution_margins')
+  name: sem_fct_contribution_margins

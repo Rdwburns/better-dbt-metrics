@@ -566,6 +566,10 @@ class BetterDBTCompiler:
         if 'source' in metric_def:
             compiled['source'] = metric_def['source']
         
+        # Preserve source_ref metadata if it exists
+        if 'source_ref' in metric_def:
+            compiled['source_ref'] = metric_def['source_ref']
+        
         # Copy over other fields
         for key in ['measure', 'numerator', 'denominator', 'formula', 'expression', 
                    'filter', 'meta', 'config', 'validation', 'auto_variants', 
@@ -1198,9 +1202,82 @@ class BetterDBTCompiler:
                             traceback.print_exc()
                         
             # Create semantic model
+            # Handle special cases where source is a composite identifier
+            if source.startswith('ratio_') or source.startswith('conversion_'):
+                # For ratio/conversion metrics with different sources, we need to handle differently
+                # Check if this is really a composite source by looking at the metrics
+                is_composite = False
+                actual_sources = set()
+                
+                for metric in metrics:
+                    if metric.get('type') == 'ratio':
+                        num_source = metric.get('numerator', {}).get('source')
+                        den_source = metric.get('denominator', {}).get('source')
+                        if num_source and den_source and num_source != den_source:
+                            is_composite = True
+                            actual_sources.add(num_source)
+                            actual_sources.add(den_source)
+                    elif metric.get('type') == 'conversion':
+                        base_source = metric.get('base_measure', {}).get('source')
+                        conv_source = metric.get('conversion_measure', {}).get('source')
+                        if base_source and conv_source and base_source != conv_source:
+                            is_composite = True
+                            actual_sources.add(base_source)
+                            actual_sources.add(conv_source)
+                
+                if is_composite and actual_sources:
+                    # For composite sources, we should not create a semantic model
+                    # Instead, the measures should be added to their respective source semantic models
+                    # Skip creating this semantic model
+                    if self.config.debug:
+                        print(f"[DEBUG] Skipping composite semantic model for {source}")
+                        print(f"[DEBUG] Actual sources: {actual_sources}")
+                    
+                    # Distribute measures to their actual source semantic models
+                    for metric in metrics:
+                        if metric.get('type') == 'ratio':
+                            # Add numerator measures to numerator source
+                            num_source = metric.get('numerator', {}).get('source')
+                            if num_source:
+                                if num_source not in self.metrics_by_source:
+                                    self.metrics_by_source[num_source] = []
+                                # Create a simplified metric for the numerator
+                                num_metric = {
+                                    'name': f"{metric['name']}_num_only",
+                                    'type': 'simple',
+                                    'source': num_source,
+                                    'measure': metric['numerator'].get('measure', {}),
+                                    'dimensions': metric.get('dimensions', [])
+                                }
+                                self.metrics_by_source[num_source].append(num_metric)
+                            
+                            # Add denominator measures to denominator source
+                            den_source = metric.get('denominator', {}).get('source')
+                            if den_source:
+                                if den_source not in self.metrics_by_source:
+                                    self.metrics_by_source[den_source] = []
+                                # Create a simplified metric for the denominator
+                                den_metric = {
+                                    'name': f"{metric['name']}_den_only",
+                                    'type': 'simple',
+                                    'source': den_source,
+                                    'measure': metric['denominator'].get('measure', {}),
+                                    'dimensions': metric.get('dimensions', [])
+                                }
+                                self.metrics_by_source[den_source].append(den_metric)
+                    
+                    # Skip creating the composite semantic model
+                    continue
+                else:
+                    # Not actually a composite, use the source as-is
+                    model_ref = f"ref('{source}')"
+            else:
+                # Normal source
+                model_ref = f"ref('{source}')"
+            
             semantic_model = {
                 'name': f"sem_{source}",
-                'model': f"ref('{source}')",
+                'model': model_ref,
                 'description': f"Semantic model for {source}",
                 'dimensions': all_dimensions,
                 'measures': all_measures,
@@ -1839,6 +1916,21 @@ class BetterDBTCompiler:
                             existing_refs.append(ref)
                 elif 'type_params' in dbt_metric:
                     dbt_metric['type_params']['metrics'] = filter_metric_refs
+        
+        # Add source_ref to meta if it exists
+        if 'source_ref' in metric:
+            if 'meta' not in dbt_metric:
+                dbt_metric['meta'] = {}
+            dbt_metric['meta']['source_ref'] = metric['source_ref']
+        
+        # Add general meta from the original metric
+        if 'meta' in metric:
+            if 'meta' not in dbt_metric:
+                dbt_metric['meta'] = {}
+            # Merge meta fields
+            for key, value in metric['meta'].items():
+                if key not in dbt_metric['meta']:  # Don't overwrite existing meta
+                    dbt_metric['meta'][key] = value
                 
         return dbt_metric
         

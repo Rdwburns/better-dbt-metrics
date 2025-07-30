@@ -1,0 +1,141 @@
+# Fiscal Calendar Macros - Reusable SQL snippets
+# Financial Year: Feb 1 - Jan 31
+
+macros:
+  # Core fiscal year calculation
+  fiscal_year:
+    sql: |
+      CASE 
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) >= 2 
+        THEN EXTRACT(YEAR FROM {{ date_expr }})
+        ELSE EXTRACT(YEAR FROM {{ date_expr }}) - 1
+      END
+    parameters:
+      date_expr: "date"  # Default column name
+
+  # Fiscal quarter number (1-4)
+  fiscal_quarter_num:
+    sql: |
+      CASE
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) IN (2, 3, 4) THEN 1
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) IN (5, 6, 7) THEN 2
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) IN (8, 9, 10) THEN 3
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) IN (11, 12, 1) THEN 4
+      END
+    parameters:
+      date_expr: "date"
+
+  # Fiscal quarter label
+  fiscal_quarter_label:
+    sql: |
+      CASE
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) IN (2, 3, 4) THEN 'Q1'
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) IN (5, 6, 7) THEN 'Q2'
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) IN (8, 9, 10) THEN 'Q3'
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) IN (11, 12, 1) THEN 'Q4'
+      END
+    parameters:
+      date_expr: "date"
+
+  # Combined fiscal year-quarter
+  fiscal_period:
+    sql: |
+      CONCAT(
+        'FY',
+        {{ fiscal_year(date_expr) }},
+        '-',
+        {{ fiscal_quarter_label(date_expr) }}
+      )
+    parameters:
+      date_expr: "date"
+
+  # Fiscal month number (1-12, where 1=Feb)
+  fiscal_month:
+    sql: |
+      CASE
+        WHEN EXTRACT(MONTH FROM {{ date_expr }}) >= 2
+        THEN EXTRACT(MONTH FROM {{ date_expr }}) - 1
+        ELSE EXTRACT(MONTH FROM {{ date_expr }}) + 11
+      END
+    parameters:
+      date_expr: "date"
+
+  # Check if date is in current fiscal year
+  is_current_fiscal_year:
+    sql: |
+      {{ fiscal_year(date_expr) }} = {{ fiscal_year('CURRENT_DATE()') }}
+    parameters:
+      date_expr: "date"
+
+  # Check if date is in last fiscal year
+  is_last_fiscal_year:
+    sql: |
+      {{ fiscal_year(date_expr) }} = {{ fiscal_year('CURRENT_DATE()') }} - 1
+    parameters:
+      date_expr: "date"
+
+  # Fiscal year start date
+  fiscal_year_start:
+    sql: |
+      DATE({{ fiscal_year(date_expr) }} || '-02-01')
+    parameters:
+      date_expr: "date"
+
+  # Fiscal year end date
+  fiscal_year_end:
+    sql: |
+      DATE(({{ fiscal_year(date_expr) }} + 1) || '-01-31')
+    parameters:
+      date_expr: "date"
+
+  # Days into fiscal year
+  fiscal_day_of_year:
+    sql: |
+      DATEDIFF('day', {{ fiscal_year_start(date_expr) }}, {{ date_expr }}) + 1
+    parameters:
+      date_expr: "date"
+
+  # Fiscal week number
+  fiscal_week:
+    sql: |
+      CEIL({{ fiscal_day_of_year(date_expr) }} / 7.0)
+    parameters:
+      date_expr: "date"
+
+# Simplified dimension definitions using macros
+dimension_shortcuts:
+  fy:
+    type: time
+    sql: "{{ fiscal_year(date) }}"
+    
+  fq:
+    type: time  
+    sql: "{{ fiscal_quarter_label(date) }}"
+    
+  fyq:
+    type: time
+    sql: "{{ fiscal_period(date) }}"
+    
+  fm:
+    type: time
+    sql: "{{ fiscal_month(date) }}"
+
+# Example usage patterns
+examples:
+  # Simple fiscal year filter
+  current_fy_filter: "{{ is_current_fiscal_year(transaction_date) }}"
+  
+  # Fiscal YTD filter
+  fiscal_ytd_filter: |
+    {{ is_current_fiscal_year(transaction_date) }}
+    AND transaction_date <= CURRENT_DATE()
+    
+  # Same period last fiscal year
+  same_period_lfy_filter: |
+    {{ is_last_fiscal_year(transaction_date) }}
+    AND {{ fiscal_day_of_year(transaction_date) }} <= {{ fiscal_day_of_year('CURRENT_DATE()') }}
+    
+  # Specific fiscal quarter
+  q2_fy2024_filter: |
+    {{ fiscal_year(transaction_date) }} = 2024
+    AND {{ fiscal_quarter_num(transaction_date) }} = 2

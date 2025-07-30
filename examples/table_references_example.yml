@@ -1,0 +1,134 @@
+# Example: Table References in Better-DBT-Metrics
+# This example demonstrates different ways to reference tables in metrics
+
+version: 2
+
+metrics:
+  # Example 1: Simple string reference (traditional format)
+  - name: total_revenue_traditional
+    description: "Total revenue using traditional source syntax"
+    type: simple
+    source: fct_orders  # Traditional string reference
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: date
+        type: time
+        grain: day
+
+  # Example 2: Using ref() function syntax
+  - name: total_revenue_ref
+    description: "Total revenue using ref() function syntax"
+    type: simple
+    source: ref('fct_orders')  # ref() function for navigation
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: date
+        type: time
+        grain: day
+
+  # Example 3: Using $table() syntax
+  - name: total_revenue_table
+    description: "Total revenue using $table() syntax"
+    type: simple
+    source: $table('fct_orders')  # $table() function
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: date
+        type: time
+        grain: day
+
+  # Example 4: Using dict format with ref
+  - name: total_revenue_dict_ref
+    description: "Total revenue using dict format with ref"
+    type: simple
+    source:
+      ref: fct_orders  # Dict format with ref key
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: date
+        type: time
+        grain: day
+
+  # Example 5: Using dict format with $table
+  - name: total_revenue_dict_table
+    description: "Total revenue using dict format with $table"
+    type: simple
+    source:
+      $table: fct_orders  # Dict format with $table key
+    measure:
+      type: sum
+      column: order_total
+    dimensions:
+      - name: date
+        type: time
+        grain: day
+
+  # Example 6: Ratio metric with different table references
+  - name: profit_margin
+    description: "Profit margin as a percentage of revenue"
+    type: ratio
+    numerator:
+      source: ref('fct_financials')  # Different table for profit
+      measure:
+        type: sum
+        column: gross_profit
+    denominator:
+      source: ref('fct_orders')  # Orders table for revenue
+      measure:
+        type: sum
+        column: order_total
+    dimensions:
+      - name: date
+        type: time
+        grain: month
+
+  # Example 7: Ratio metric with same table reference
+  - name: average_order_size_ratio
+    description: "Average items per order"
+    type: ratio
+    source: ref('fct_orders')  # Single source for both
+    numerator:
+      measure:
+        type: sum
+        column: item_count
+    denominator:
+      measure:
+        type: count
+        column: order_id
+    dimensions:
+      - name: customer_segment
+        type: categorical
+
+  # Example 8: Template usage with table references
+  - name: revenue_by_category
+    description: "Revenue broken down by product category"
+    template: revenue_template
+    parameters:
+      SOURCE_TABLE: ref('fct_order_items')  # Table reference in template parameter
+      AMOUNT_COLUMN: item_revenue
+      CATEGORY_COLUMN: product_category
+
+# Example metric template that accepts table references
+metric_templates:
+  revenue_template:
+    parameters:
+      - SOURCE_TABLE
+      - AMOUNT_COLUMN
+      - CATEGORY_COLUMN
+    template:
+      type: simple
+      source: "{{ SOURCE_TABLE }}"  # Will preserve the ref() syntax
+      measure:
+        type: sum
+        column: "{{ AMOUNT_COLUMN }}"
+      dimensions:
+        - name: "{{ CATEGORY_COLUMN }}"
+          type: categorical

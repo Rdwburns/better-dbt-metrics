@@ -1,0 +1,32 @@
+version: 1
+
+# Global configuration for metrics
+config:
+  default_time_grain: day
+  default_dimensions:
+    - date_day
+    - channel
+    - territory
+  
+  # Auto-variant settings
+  auto_variants:
+    time_comparisons:
+      enabled: true
+      periods:
+        - wow
+        - mom
+        - yoy
+    
+    territory_splits:
+      enabled: true
+      territories:
+        - UK
+        - CE
+        - EE
+    
+    channel_splits:
+      enabled: true
+      channels:
+        - shopify
+        - amazon
+        - tiktok_shop

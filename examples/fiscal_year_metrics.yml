@@ -1,0 +1,155 @@
+# Example: Using Fiscal Calendar Templates
+# Financial Year: Feb 1 - Jan 31
+
+imports:
+  - _base.fiscal_calendar as fiscal
+  - _base.templates as t
+
+metrics:
+  # Simple revenue metric with fiscal dimensions
+  - name: revenue_by_fiscal_period
+    $use: fiscal.fiscal_metric
+    parameters:
+      source_table: models.marts.core.fct_revenue
+      measure_column: revenue_amount
+      measure_type: sum
+      date_column: transaction_date
+    description: "Revenue grouped by fiscal year and quarter"
+
+  # Current fiscal year revenue
+  - name: current_fy_revenue
+    type: simple
+    source: models.marts.core.fct_revenue
+    measure:
+      type: sum
+      column: revenue_amount
+    filter: $ref(fiscal.filters.current_fiscal_year)
+    dimensions:
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_quarter
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_month_name
+    description: "Revenue for current fiscal year (FY starts Feb 1)"
+
+  # YTD fiscal revenue
+  - name: fiscal_ytd_revenue
+    type: simple
+    source: models.marts.core.fct_revenue
+    measure:
+      type: sum
+      column: revenue_amount
+    filter: $ref(fiscal.filters.fiscal_year_to_date)
+    description: "Fiscal year-to-date revenue"
+
+  # Fiscal YoY comparison
+  - name: revenue_yoy_fiscal_growth
+    $use: fiscal.fiscal_comparison
+    parameters:
+      source_table: models.marts.core.fct_revenue
+      measure_column: revenue_amount
+      measure_type: sum
+      date_column: transaction_date
+    description: "Year-over-year growth rate (fiscal year basis)"
+    format:
+      type: percentage
+      decimal_places: 1
+
+  # Quarterly fiscal metrics with auto-variants
+  - name: quarterly_revenue_fiscal
+    type: simple
+    source: models.marts.core.fct_revenue
+    measure:
+      type: sum
+      column: revenue_amount
+    dimensions:
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_year
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_quarter
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_year_quarter
+    auto_variants:
+      # Quarter-over-quarter comparisons
+      time_comparisons:
+        - type: qoq
+          label_suffix: _qoq
+          description: "Quarter-over-quarter change"
+      # By region
+      territory_splits:
+        - territory: US
+          label_suffix: _us
+        - territory: UK
+          label_suffix: _uk
+
+  # Monthly fiscal reporting
+  - name: monthly_sales_fiscal
+    type: simple
+    source: models.marts.sales.fct_sales
+    measure:
+      type: count_distinct
+      column: order_id
+    dimensions:
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_year
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_month_num
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_month_name
+    description: "Monthly sales count aligned to fiscal calendar"
+
+  # Fiscal week metrics
+  - name: weekly_active_users_fiscal
+    type: simple
+    source: models.marts.product.fct_user_activity
+    measure:
+      type: count_distinct
+      column: user_id
+    dimensions:
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_year
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_week_num
+    filter: "activity_type = 'login'"
+    description: "Weekly active users by fiscal week"
+
+  # Advanced: Fiscal quarter with custom SQL
+  - name: fiscal_quarter_target_achievement
+    type: ratio
+    numerator:
+      source: models.marts.core.fct_revenue
+      measure:
+        type: sum
+        column: revenue_amount
+      filter: $ref(fiscal.filters.current_fiscal_quarter)
+    denominator:
+      source: models.marts.planning.dim_targets
+      measure:
+        type: sum
+        column: target_amount
+      filter: |
+        target_type = 'revenue' 
+        AND fiscal_quarter = (
+          CASE
+            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) IN (2, 3, 4) THEN 'Q1'
+            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) IN (5, 6, 7) THEN 'Q2'
+            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) IN (8, 9, 10) THEN 'Q3'
+            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) IN (11, 12, 1) THEN 'Q4'
+          END
+        )
+    dimensions:
+      - name: region
+        type: categorical
+    format:
+      type: percentage
+      decimal_places: 1
+    description: "Current fiscal quarter achievement vs target"
+
+# Using fiscal calendar in custom metrics
+  - name: custom_fiscal_metric
+    type: simple
+    source: models.marts.core.fct_transactions
+    measure:
+      type: sum
+      column: amount
+    # Direct SQL for fiscal year filtering
+    filter: |
+      CASE 
+        WHEN EXTRACT(MONTH FROM transaction_date) >= 2 
+        THEN EXTRACT(YEAR FROM transaction_date)
+        ELSE EXTRACT(YEAR FROM transaction_date) - 1
+      END = 2024
+    dimensions:
+      # Mix fiscal and calendar dimensions
+      - $ref: fiscal.fiscal_time_dimensions.fiscal_quarter
+      - $ref: fiscal.fiscal_time_dimensions.calendar_date
+    description: "FY2024 transactions with both fiscal and calendar views"

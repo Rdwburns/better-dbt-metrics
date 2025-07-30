@@ -1,0 +1,139 @@
+# Simplest Way to Use Fiscal Calendar (Feb-Jan)
+
+imports:
+  - _base.fiscal_macros as fy
+
+metrics:
+  # Method 1: Direct SQL in dimensions
+  - name: revenue_fiscal_simple
+    type: simple
+    source: fct_revenue
+    measure:
+      type: sum
+      column: amount
+    dimensions:
+      # Fiscal year
+      - name: fiscal_year
+        type: time
+        sql: |
+          CASE 
+            WHEN EXTRACT(MONTH FROM date) >= 2 
+            THEN EXTRACT(YEAR FROM date)
+            ELSE EXTRACT(YEAR FROM date) - 1
+          END
+      
+      # Fiscal quarter  
+      - name: fiscal_quarter
+        type: time
+        sql: |
+          'Q' || CASE
+            WHEN EXTRACT(MONTH FROM date) IN (2,3,4) THEN '1'
+            WHEN EXTRACT(MONTH FROM date) IN (5,6,7) THEN '2'
+            WHEN EXTRACT(MONTH FROM date) IN (8,9,10) THEN '3'
+            ELSE '4'
+          END
+
+  # Method 2: Using macro references (cleaner)
+  - name: sales_by_fiscal_period
+    type: simple
+    source: fct_sales
+    measure:
+      type: count
+      column: order_id
+    dimensions:
+      - name: fy
+        type: time
+        sql: "{{ fy.fiscal_year(order_date) }}"
+      - name: fq
+        type: time
+        sql: "{{ fy.fiscal_quarter_label(order_date) }}"
+
+  # Method 3: Current fiscal year metrics
+  - name: current_fy_revenue
+    type: simple
+    source: fct_revenue
+    measure:
+      type: sum
+      column: amount
+    # Filter for current fiscal year
+    filter: |
+      CASE 
+        WHEN EXTRACT(MONTH FROM date) >= 2 
+        THEN EXTRACT(YEAR FROM date)
+        ELSE EXTRACT(YEAR FROM date) - 1
+      END = 
+      CASE 
+        WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 2 
+        THEN EXTRACT(YEAR FROM CURRENT_DATE())
+        ELSE EXTRACT(YEAR FROM CURRENT_DATE()) - 1
+      END
+
+  # Method 4: Fiscal YTD
+  - name: fiscal_ytd_sales
+    type: simple
+    source: fct_sales
+    measure:
+      type: sum
+      column: amount
+    filter: |
+      -- Current fiscal year
+      CASE 
+        WHEN EXTRACT(MONTH FROM date) >= 2 
+        THEN EXTRACT(YEAR FROM date)
+        ELSE EXTRACT(YEAR FROM date) - 1
+      END = 
+      CASE 
+        WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 2 
+        THEN EXTRACT(YEAR FROM CURRENT_DATE())
+        ELSE EXTRACT(YEAR FROM CURRENT_DATE()) - 1
+      END
+      -- And up to today
+      AND date <= CURRENT_DATE()
+
+  # Method 5: Quick comparison metrics
+  - name: revenue_fiscal_comparison
+    type: derived
+    expression: |
+      SUM(CASE WHEN {{ fy.is_current_fiscal_year(date) }} THEN amount END) /
+      SUM(CASE WHEN {{ fy.is_last_fiscal_year(date) }} THEN amount END) - 1
+    metrics:
+      - source: fct_revenue
+    format:
+      type: percentage
+      decimal_places: 1
+    description: "Current vs Last Fiscal Year Growth"
+
+# Reusable dimension group
+dimension_groups:
+  fiscal_dims:
+    dimensions:
+      - name: fiscal_year
+        type: time
+        sql: |
+          'FY' || CASE 
+            WHEN EXTRACT(MONTH FROM date) >= 2 
+            THEN EXTRACT(YEAR FROM date)
+            ELSE EXTRACT(YEAR FROM date) - 1
+          END
+      - name: fiscal_quarter
+        type: time
+        sql: |
+          CASE
+            WHEN EXTRACT(MONTH FROM date) IN (2,3,4) THEN 'Q1 (Feb-Apr)'
+            WHEN EXTRACT(MONTH FROM date) IN (5,6,7) THEN 'Q2 (May-Jul)'
+            WHEN EXTRACT(MONTH FROM date) IN (8,9,10) THEN 'Q3 (Aug-Oct)'
+            ELSE 'Q4 (Nov-Jan)'
+          END
+      - name: calendar_month
+        type: time
+        sql: "TO_CHAR(date, 'YYYY-MM')"
+        description: "Regular calendar month for comparison"
+
+# Then use in any metric:
+  - name: orders_with_fiscal
+    type: simple
+    source: fct_orders
+    measure:
+      type: count
+      column: order_id
+    dimensions: $ref(fiscal_dims)

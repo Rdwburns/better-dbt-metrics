@@ -104,6 +104,9 @@ class BetterDBTParser:
             # Process the rest of the document
             processed_data = self._process_references(data)
             
+            # Process table references in source fields
+            processed_data = self._process_table_references(processed_data)
+            
             # Handle template inheritance
             if 'metrics' in processed_data:
                 processed_data['metrics'] = self._process_metric_inheritance(processed_data['metrics'])
@@ -291,6 +294,47 @@ class BetterDBTParser:
                 return {'$ref': ref_path}
                 
         return deepcopy(current)  # Return a copy to avoid mutations
+    
+    def _process_table_references(self, data: Any) -> Any:
+        """Process table references in source fields"""
+        if isinstance(data, dict):
+            # Process source field with table reference
+            if 'source' in data:
+                source_value = data['source']
+                # Handle table reference format: ref('table_name') or $table('table_name')
+                if isinstance(source_value, str):
+                    # Check for ref() format
+                    ref_match = re.match(r"ref\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", source_value)
+                    if ref_match:
+                        table_name = ref_match.group(1)
+                        data['source'] = table_name
+                        data['source_ref'] = {'table': table_name, 'type': 'ref'}
+                    # Check for $table() format
+                    table_match = re.match(r"\$table\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", source_value)
+                    if table_match:
+                        table_name = table_match.group(1)
+                        data['source'] = table_name
+                        data['source_ref'] = {'table': table_name, 'type': 'table'}
+                elif isinstance(source_value, dict):
+                    # Handle dict format: {$table: 'table_name'} or {ref: 'table_name'}
+                    if '$table' in source_value:
+                        table_name = source_value['$table']
+                        data['source'] = table_name
+                        data['source_ref'] = {'table': table_name, 'type': 'table'}
+                    elif 'ref' in source_value:
+                        table_name = source_value['ref']
+                        data['source'] = table_name
+                        data['source_ref'] = {'table': table_name, 'type': 'ref'}
+            
+            # Recursively process nested structures
+            for key, value in data.items():
+                if key != 'source':  # Don't reprocess source
+                    data[key] = self._process_table_references(value)
+            return data
+        elif isinstance(data, list):
+            return [self._process_table_references(item) for item in data]
+        else:
+            return data
         
     def _process_metric_inheritance(self, metrics: List[Dict]) -> List[Dict]:
         """Process metric inheritance (extends and template)"""

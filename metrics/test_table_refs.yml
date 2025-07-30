@@ -1,0 +1,28 @@
+# Test table references
+version: 2
+
+metrics:
+  # Test ref() syntax
+  - name: test_revenue_ref
+    description: "Test metric with ref() syntax"
+    type: simple
+    source: ref('fct_orders')
+    measure:
+      type: sum
+      column: revenue
+    dimensions:
+      - name: date
+        type: time
+        grain: day
+        
+  # Test $table() syntax  
+  - name: test_revenue_table
+    description: "Test metric with $table() syntax"
+    type: simple
+    source: $table('fct_sales')
+    measure:
+      type: sum
+      column: amount
+    dimensions:
+      - name: region
+        type: categorical

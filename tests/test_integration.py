@@ -256,8 +256,7 @@ metrics:
         # Verify metric types
         metric_types = {m['name']: m['type'] for m in output['metrics']}
         assert metric_types['total_revenue'] == 'simple'
-        # Note: Template expansion for ratio metrics needs more work
-        # assert metric_types['refund_rate'] == 'ratio'
+        assert metric_types['refund_rate'] == 'ratio'  # Now working correctly!
         assert metric_types['average_order_value'] == 'derived'
         assert metric_types['running_total_revenue'] == 'cumulative'
         assert metric_types['visitor_to_customer_conversion'] == 'conversion'

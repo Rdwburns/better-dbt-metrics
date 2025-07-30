@@ -1,0 +1,75 @@
+# Better-DBT-Metrics Configuration
+# This configuration enables YAML-safe template processing
+
+paths:
+  metrics_dir: metrics/              # Input directory for metric definitions
+  output_dir: models/semantic/       # Output directory for compiled metrics
+  template_dir: metrics/_base/       # Directory containing templates
+
+imports:
+  # Shortcuts for common imports
+  mappings:
+    "_base.templates": "_base/templates.yml"
+    "_base.dimensions": "_base/dimension_groups.yml"
+    "common": "shared/common.yml"
+
+compilation:
+  # Enable the enhanced template expansion
+  template_expansion:
+    enabled: true
+    use_yaml_safe_mode: true  # New option to use YAML-safe processing
+    recursive: true
+    max_depth: 3
+  
+  # Enable dimension inheritance and validation
+  inherit_dimensions: true
+  validate_dimensions: true
+  expand_auto_variants: true
+
+# Auto-variant configuration
+auto_variants:
+  time_comparisons:
+    enabled: true
+    default_periods: [wow, mom, yoy]
+  
+  territory_splits:
+    enabled: true
+    territories: [UK, US, EU]
+  
+  channel_splits:
+    enabled: true
+    channels: [web, mobile, api]
+
+# Validation settings
+validation:
+  require_descriptions: true
+  require_labels: true
+  validate_dimension_refs: true
+  validate_sources: false  # Set to true in production
+
+# Output formatting
+output:
+  file_pattern: "{domain}_{type}_metrics.yml"
+  add_dbt_meta: true
+  include_metadata: true
+  format:
+    indent: 2
+    quote_style: single  # Use single quotes in output for SQL
+
+# Logging configuration
+logging:
+  level: INFO
+  show_sql: false
+  show_yaml: true
+
+# Template processing options
+templates:
+  # SQL-safe defaults for common patterns
+  sql_defaults:
+    date_filter: "date >= '2020-01-01'"
+    status_filter: "status = 'active'"
+  
+  # Custom Jinja2 filters available in templates
+  custom_filters:
+    - sql_quote: "lambda x: f\"'{x}'\" if isinstance(x, str) else str(x)"
+    - safe_default: "lambda x, d: x if x else d"

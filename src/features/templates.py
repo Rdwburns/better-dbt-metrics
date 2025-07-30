@@ -157,21 +157,60 @@ class TemplateEngine:
     def _expand_template_dict(self, template_dict: Dict[str, Any], 
                             params: Dict[str, Any]) -> Dict[str, Any]:
         """Recursively expand a template dictionary"""
-        # Deep copy to avoid modifying original
-        import json
         from copy import deepcopy
         
-        # Convert to JSON string first (more reliable for preserving quotes)
-        template_str = json.dumps(template_dict)
+        # Deep copy to avoid modifying original
+        result = deepcopy(template_dict)
         
-        # Process with Jinja2
+        # Process each value recursively without JSON conversion
+        self._process_dict_values(result, params)
+        
+        return result
+    
+    def _process_dict_values(self, obj: Dict[str, Any], params: Dict[str, Any]):
+        """Recursively process dictionary values with Jinja2 templates"""
+        for key, value in obj.items():
+            if isinstance(value, str):
+                # Check if it contains Jinja2 template syntax
+                if '{{' in value or '{%' in value:
+                    obj[key] = self._expand_string_template(value, params)
+            elif isinstance(value, dict):
+                self._process_dict_values(value, params)
+            elif isinstance(value, list):
+                self._process_list_values(value, params)
+    
+    def _process_list_values(self, obj: List[Any], params: Dict[str, Any]):
+        """Recursively process list values with Jinja2 templates"""
+        for i, item in enumerate(obj):
+            if isinstance(item, str):
+                if '{{' in item or '{%' in item:
+                    obj[i] = self._expand_string_template(item, params)
+            elif isinstance(item, dict):
+                self._process_dict_values(item, params)
+            elif isinstance(item, list):
+                self._process_list_values(item, params)
+    
+    def _expand_string_template(self, template_str: str, params: Dict[str, Any]) -> Any:
+        """Expand a single template string"""
+        # Add custom filters for safe SQL handling
+        self.jinja_env.filters['sql_quote'] = lambda x: f"'{x}'" if isinstance(x, str) else str(x)
+        self.jinja_env.filters['safe_default'] = lambda x, d: x if x else d
+        
         jinja_template = self.jinja_env.from_string(template_str)
-        expanded_str = jinja_template.render(**params)
+        result = jinja_template.render(**params)
         
-        # Parse back to dict
-        expanded_dict = json.loads(expanded_str)
+        # Try to preserve the original type for pure template expressions
+        if template_str.strip().startswith('{{') and template_str.strip().endswith('}}'):
+            # This was a pure template expression, try to evaluate it
+            try:
+                import ast
+                # Only evaluate simple literals for safety
+                return ast.literal_eval(result)
+            except:
+                # Return as string if evaluation fails
+                pass
         
-        return expanded_dict
+        return result
         
 
 class TemplateLibrary:

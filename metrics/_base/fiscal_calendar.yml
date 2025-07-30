@@ -1,0 +1,247 @@
+# Fiscal Calendar Definitions
+# Financial Year: Feb 1 - Jan 31
+
+dimension_groups:
+  fiscal_time_dimensions:
+    description: "Time dimensions for Feb-Jan fiscal year"
+    dimensions:
+      # Fiscal Year
+      - name: fiscal_year
+        type: time
+        sql: |
+          CASE 
+            WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) >= 2 
+            THEN EXTRACT(YEAR FROM {{ date_column | default('date') }})
+            ELSE EXTRACT(YEAR FROM {{ date_column | default('date') }}) - 1
+          END
+        time_grains: [year]
+        
+      # Fiscal Quarter (Q1 = Feb-Apr, Q2 = May-Jul, Q3 = Aug-Oct, Q4 = Nov-Jan)
+      - name: fiscal_quarter
+        type: time
+        sql: |
+          CASE
+            WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (2, 3, 4) THEN 'Q1'
+            WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (5, 6, 7) THEN 'Q2'
+            WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (8, 9, 10) THEN 'Q3'
+            WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (11, 12, 1) THEN 'Q4'
+          END
+        time_grains: [quarter]
+        
+      # Fiscal Year-Quarter Combined (e.g., "FY2024-Q1")
+      - name: fiscal_year_quarter
+        type: time
+        sql: |
+          CONCAT(
+            'FY',
+            CASE 
+              WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) >= 2 
+              THEN EXTRACT(YEAR FROM {{ date_column | default('date') }})
+              ELSE EXTRACT(YEAR FROM {{ date_column | default('date') }}) - 1
+            END,
+            '-',
+            CASE
+              WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (2, 3, 4) THEN 'Q1'
+              WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (5, 6, 7) THEN 'Q2'
+              WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (8, 9, 10) THEN 'Q3'
+              WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (11, 12, 1) THEN 'Q4'
+            END
+          )
+          
+      # Fiscal Month Number (1-12, where 1 = February)
+      - name: fiscal_month_num
+        type: time
+        sql: |
+          CASE
+            WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) >= 2
+            THEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) - 1
+            ELSE EXTRACT(MONTH FROM {{ date_column | default('date') }}) + 11
+          END
+          
+      # Fiscal Month Name
+      - name: fiscal_month_name
+        type: time
+        sql: |
+          CASE EXTRACT(MONTH FROM {{ date_column | default('date') }})
+            WHEN 2 THEN 'Feb (M1)'
+            WHEN 3 THEN 'Mar (M2)'
+            WHEN 4 THEN 'Apr (M3)'
+            WHEN 5 THEN 'May (M4)'
+            WHEN 6 THEN 'Jun (M5)'
+            WHEN 7 THEN 'Jul (M6)'
+            WHEN 8 THEN 'Aug (M7)'
+            WHEN 9 THEN 'Sep (M8)'
+            WHEN 10 THEN 'Oct (M9)'
+            WHEN 11 THEN 'Nov (M10)'
+            WHEN 12 THEN 'Dec (M11)'
+            WHEN 1 THEN 'Jan (M12)'
+          END
+          
+      # Fiscal Week Number (1-52/53)
+      - name: fiscal_week_num
+        type: time
+        sql: |
+          -- Calculate weeks since Feb 1 of the fiscal year
+          CEIL(
+            DATEDIFF(
+              'day',
+              DATE(
+                CASE 
+                  WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) >= 2 
+                  THEN EXTRACT(YEAR FROM {{ date_column | default('date') }})
+                  ELSE EXTRACT(YEAR FROM {{ date_column | default('date') }}) - 1
+                END || '-02-01'
+              ),
+              {{ date_column | default('date') }}
+            ) / 7.0
+          )
+          
+      # Standard calendar dimensions for comparison
+      - name: calendar_date
+        type: time
+        sql: "{{ date_column | default('date') }}"
+        time_grains: [day, week, month, quarter, year]
+
+# Metric templates that use fiscal calendar
+metric_templates:
+  fiscal_metric:
+    description: "Base template for metrics using fiscal calendar"
+    parameters:
+      - name: source_table
+        type: string
+        required: true
+      - name: measure_column
+        type: string
+        required: true
+      - name: measure_type
+        type: string
+        default: sum
+      - name: date_column
+        type: string
+        default: date
+      - name: fiscal_filter
+        type: string
+    template:
+      type: simple
+      source: "{{ source_table }}"
+      measure:
+        type: "{{ measure_type }}"
+        column: "{{ measure_column }}"
+      filter: "{{ fiscal_filter or '' }}"
+      dimensions:
+        - $ref: fiscal_time_dimensions.fiscal_year
+        - $ref: fiscal_time_dimensions.fiscal_quarter
+        - $ref: fiscal_time_dimensions.fiscal_year_quarter
+        - $ref: fiscal_time_dimensions.calendar_date
+
+  fiscal_comparison:
+    description: "Template for YoY fiscal comparisons"
+    parameters:
+      - name: source_table
+        type: string
+        required: true
+      - name: measure_column
+        type: string
+        required: true
+      - name: measure_type
+        type: string
+        default: sum
+      - name: date_column
+        type: string
+        default: date
+    template:
+      type: derived
+      expression: |
+        {{ measure_type }}(
+          CASE 
+            WHEN {{ date_column }} >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)
+            THEN {{ measure_column }}
+          END
+        ) / 
+        {{ measure_type }}(
+          CASE 
+            WHEN {{ date_column }} >= DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR)
+              AND {{ date_column }} < DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)
+            THEN {{ measure_column }}
+          END
+        ) - 1
+      metrics:
+        - name: current_fy
+          source: "{{ source_table }}"
+          measure:
+            type: "{{ measure_type }}"
+            column: "{{ measure_column }}"
+          filter: |
+            CASE 
+              WHEN EXTRACT(MONTH FROM {{ date_column }}) >= 2 
+              THEN EXTRACT(YEAR FROM {{ date_column }})
+              ELSE EXTRACT(YEAR FROM {{ date_column }}) - 1
+            END = EXTRACT(YEAR FROM CURRENT_DATE())
+        - name: prior_fy
+          source: "{{ source_table }}"
+          measure:
+            type: "{{ measure_type }}"
+            column: "{{ measure_column }}"
+          filter: |
+            CASE 
+              WHEN EXTRACT(MONTH FROM {{ date_column }}) >= 2 
+              THEN EXTRACT(YEAR FROM {{ date_column }})
+              ELSE EXTRACT(YEAR FROM {{ date_column }}) - 1
+            END = EXTRACT(YEAR FROM CURRENT_DATE()) - 1
+
+# Predefined fiscal period filters
+filters:
+  current_fiscal_year:
+    sql: |
+      CASE 
+        WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) >= 2 
+        THEN EXTRACT(YEAR FROM {{ date_column | default('date') }})
+        ELSE EXTRACT(YEAR FROM {{ date_column | default('date') }}) - 1
+      END = 
+      CASE 
+        WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 2 
+        THEN EXTRACT(YEAR FROM CURRENT_DATE())
+        ELSE EXTRACT(YEAR FROM CURRENT_DATE()) - 1
+      END
+      
+  current_fiscal_quarter:
+    sql: |
+      {{ filters.current_fiscal_year.sql }}
+      AND CASE
+        WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (2, 3, 4) THEN 1
+        WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (5, 6, 7) THEN 2
+        WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (8, 9, 10) THEN 3
+        WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) IN (11, 12, 1) THEN 4
+      END = 
+      CASE
+        WHEN EXTRACT(MONTH FROM CURRENT_DATE()) IN (2, 3, 4) THEN 1
+        WHEN EXTRACT(MONTH FROM CURRENT_DATE()) IN (5, 6, 7) THEN 2
+        WHEN EXTRACT(MONTH FROM CURRENT_DATE()) IN (8, 9, 10) THEN 3
+        WHEN EXTRACT(MONTH FROM CURRENT_DATE()) IN (11, 12, 1) THEN 4
+      END
+      
+  last_fiscal_year:
+    sql: |
+      CASE 
+        WHEN EXTRACT(MONTH FROM {{ date_column | default('date') }}) >= 2 
+        THEN EXTRACT(YEAR FROM {{ date_column | default('date') }})
+        ELSE EXTRACT(YEAR FROM {{ date_column | default('date') }}) - 1
+      END = 
+      CASE 
+        WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 2 
+        THEN EXTRACT(YEAR FROM CURRENT_DATE()) - 1
+        ELSE EXTRACT(YEAR FROM CURRENT_DATE()) - 2
+      END
+      
+  fiscal_year_to_date:
+    sql: |
+      {{ filters.current_fiscal_year.sql }}
+      AND (
+        EXTRACT(MONTH FROM {{ date_column | default('date') }}) > 2
+        OR (
+          EXTRACT(MONTH FROM {{ date_column | default('date') }}) = 2
+          AND EXTRACT(DAY FROM {{ date_column | default('date') }}) >= 1
+        )
+        OR EXTRACT(MONTH FROM {{ date_column | default('date') }}) = 1
+      )
+      AND {{ date_column | default('date') }} <= CURRENT_DATE()

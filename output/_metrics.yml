@@ -1,28 +1,153 @@
 metrics:
-- description: Total revenue from all completed orders
-  label: Total Revenue
+- description: Return on ad spend for paid media campaigns
+  label: Paid Media ROAS
   meta:
-    owner: finance_team
-    tier: gold
-  name: total_revenue
-  type: simple
+    calculation_type: roas
+    domain: Paid Media
+    optimization_target: true
+    target_value: 3.0
+  name: paid_media_roas
+  type: ratio
   type_params:
-    measure: total_revenue_measure
-- description: Monthly recurring revenue from active subscriptions
-  label: Monthly Recurring Revenue
-  name: monthly_recurring_revenue
-  type: simple
+    denominator:
+      filter: ''
+      name: paid_media_roas_denominator
+    numerator:
+      filter: ''
+      name: paid_media_roas_numerator
+- description: Return on ad spend for paid media campaigns - platform_splits variant
+  filter: platform = 'google_ads'
+  label: Paid Media ROAS
+  meta:
+    calculation_type: roas
+    domain: Paid Media
+    optimization_target: true
+    target_value: 3.0
+  name: paid_media_roas_google
+  type: ratio
   type_params:
-    measure: monthly_recurring_revenue_measure
-- description: Average revenue per order
-  label: Average Order Value
-  name: average_order_value
-  type: simple
+    denominator:
+      filter: ''
+      name: paid_media_roas_google_denominator
+    numerator:
+      filter: ''
+      name: paid_media_roas_google_numerator
+- description: Return on ad spend for paid media campaigns - platform_splits variant
+  filter: platform = 'facebook_ads'
+  label: Paid Media ROAS
+  meta:
+    calculation_type: roas
+    domain: Paid Media
+    optimization_target: true
+    target_value: 3.0
+  name: paid_media_roas_facebook
+  type: ratio
   type_params:
-    measure: average_order_value_measure
-- description: Revenue from product sales
-  label: Product Revenue
-  name: product_revenue
-  type: simple
+    denominator:
+      filter: ''
+      name: paid_media_roas_facebook_denominator
+    numerator:
+      filter: ''
+      name: paid_media_roas_facebook_numerator
+- description: Return on ad spend for paid media campaigns - platform_splits variant
+  filter: platform = 'tiktok_ads'
+  label: Paid Media ROAS
+  meta:
+    calculation_type: roas
+    domain: Paid Media
+    optimization_target: true
+    target_value: 3.0
+  name: paid_media_roas_tiktok
+  type: ratio
   type_params:
-    measure: product_revenue_measure
+    denominator:
+      filter: ''
+      name: paid_media_roas_tiktok_denominator
+    numerator:
+      filter: ''
+      name: paid_media_roas_tiktok_numerator
+- description: Return on ad spend for paid media campaigns - metric_type_splits variant
+  filter: metric_type = 'clicks'
+  label: Paid Media ROAS
+  meta:
+    calculation_type: roas
+    domain: Paid Media
+    optimization_target: true
+    target_value: 3.0
+  name: paid_media_roas_clicks
+  type: ratio
+  type_params:
+    denominator:
+      filter: ''
+      name: paid_media_roas_clicks_denominator
+    numerator:
+      filter: ''
+      name: paid_media_roas_clicks_numerator
+- description: Return on ad spend for paid media campaigns - metric_type_splits variant
+  filter: metric_type = 'impressions'
+  label: Paid Media ROAS
+  meta:
+    calculation_type: roas
+    domain: Paid Media
+    optimization_target: true
+    target_value: 3.0
+  name: paid_media_roas_impressions
+  type: ratio
+  type_params:
+    denominator:
+      filter: ''
+      name: paid_media_roas_impressions_denominator
+    numerator:
+      filter: ''
+      name: paid_media_roas_impressions_numerator
+- description: Return on ad spend for paid media campaigns - metric_type_splits variant
+  filter: metric_type = 'conversions'
+  label: Paid Media ROAS
+  meta:
+    calculation_type: roas
+    domain: Paid Media
+    optimization_target: true
+    target_value: 3.0
+  name: paid_media_roas_conversions
+  type: ratio
+  type_params:
+    denominator:
+      filter: ''
+      name: paid_media_roas_conversions_denominator
+    numerator:
+      filter: ''
+      name: paid_media_roas_conversions_numerator
+- description: Return on ad spend for paid media campaigns - time_comparisons variant
+  filter: type = 'wow'
+  label: Paid Media ROAS
+  meta:
+    calculation_type: roas
+    domain: Paid Media
+    optimization_target: true
+    target_value: 3.0
+  name: paid_media_roas_wow
+  type: ratio
+  type_params:
+    denominator:
+      filter: ''
+      name: paid_media_roas_wow_denominator
+    numerator:
+      filter: ''
+      name: paid_media_roas_wow_numerator
+- description: Return on ad spend for paid media campaigns - time_comparisons variant
+  filter: type = 'mom'
+  label: Paid Media ROAS
+  meta:
+    calculation_type: roas
+    domain: Paid Media
+    optimization_target: true
+    target_value: 3.0
+  name: paid_media_roas_mom
+  type: ratio
+  type_params:
+    denominator:
+      filter: ''
+      name: paid_media_roas_mom_denominator
+    numerator:
+      filter: ''
+      name: paid_media_roas_mom_numerator

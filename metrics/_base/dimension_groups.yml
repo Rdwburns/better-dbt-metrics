@@ -1,0 +1,31 @@
+version: 1
+
+dimension_groups:
+  standard_dimensions:
+    description: "Standard dimensions for most metrics"
+    dimensions:
+      - name: date_day
+        type: time
+        expr: date_trunc('day', date)
+      - name: date_week
+        type: time
+        expr: date_trunc('week', date)
+      - name: date_month
+        type: time
+        expr: date_trunc('month', date)
+      - name: channel
+        type: categorical
+      - name: territory
+        type: categorical
+      - name: shop_code
+        type: categorical
+  
+  revenue_dimensions:
+    extends: 
+      - standard_dimensions
+    description: "Dimensions for revenue metrics"
+    dimensions:
+      - name: product_category
+        type: categorical
+      - name: customer_segment
+        type: categorical

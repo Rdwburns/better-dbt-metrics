@@ -1,0 +1,178 @@
+version: 1
+metric_templates:
+  revenue_metric:
+    parameters:
+      - name: source_table
+        type: string
+        default: models.marts.core.fct_unified_orders
+      - name: revenue_column
+        type: string
+        required: true
+      - name: base_filter
+        type: string
+        default: date >= "2020-01-01"
+      - name: category
+        type: string
+        default: Revenue
+      - name: criticality
+        type: number
+        default: 4
+    template:
+      type: simple
+      source: "{{ source_table | default('models.marts.core.fct_unified_orders') }}"
+      measure:
+        type: sum
+        column: "{{ revenue_column }}_gbp"
+      filter: "{{ base_filter or 'date >= \'2020-01-01\'' }}"
+      dimensions: $ref(dims.revenue_dimensions)
+      auto_variants:
+        time_comparisons:
+        - type: wow
+          label_suffix: _wow
+        - type: mom
+          label_suffix: _mom
+        - type: yoy
+          label_suffix: _yoy
+        territory_splits:
+        - territory: UK
+          label_suffix: _uk
+        - territory: CE
+          label_suffix: _ce
+        - territory: EE
+          label_suffix: _ee
+        channel_splits:
+        - shop_code: shopify
+          label_suffix: _shopify
+        - shop_code: amazon
+          label_suffix: _amazon
+        - shop_code: tiktok_shop
+          label_suffix: _tiktok
+      format:
+        type: currency
+        currency: GBP
+        decimal_places: 0
+      meta:
+        currency: GBP
+        category_name: "{{ category | default('Revenue') }}"
+        business_criticality: "{{ criticality | default(4) }}"
+        domain: Revenue
+  ratio_metric:
+    parameters:
+      - name: numerator_metric
+        type: string
+        required: true
+      - name: denominator_metric
+        type: string
+        required: true
+      - name: format_type
+        type: string
+        default: percentage
+      - name: decimal_places
+        type: number
+        default: 2
+      - name: domain
+        type: string
+        default: General
+    template:
+      type: ratio
+      numerator: $ref({{ numerator_metric }})
+      denominator: $ref({{ denominator_metric }})
+      dimensions: $ref(dims.standard_dimensions)
+      auto_variants:
+        time_comparisons:
+        - type: wow
+          label_suffix: _wow
+        - type: mom
+          label_suffix: _mom
+        territory_splits:
+        - territory: UK
+          label_suffix: _uk
+        - territory: CE
+          label_suffix: _ce
+      format:
+        type: "{{ format_type | default('percentage') }}"
+        decimal_places: "{{ decimal_places | default(2) }}"
+      meta:
+        calculation_type: ratio
+        domain: "{{ domain | default('General') }}"
+  inline_ratio_metric:
+    parameters:
+      - name: source_table
+        type: string
+        required: true
+      - name: numerator_column
+        type: string
+        required: true
+      - name: denominator_column
+        type: string
+        required: true
+      - name: numerator_agg
+        type: string
+        default: sum
+      - name: denominator_agg
+        type: string
+        default: sum
+      - name: base_filter
+        type: string
+      - name: numerator_filter
+        type: string
+      - name: denominator_filter
+        type: string
+      - name: dimensions
+        type: string
+      - name: format_type
+        type: string
+        default: percentage
+      - name: decimal_places
+        type: number
+        default: 2
+      - name: domain
+        type: string
+        default: General
+      - name: criticality
+        type: number
+        default: 3
+    template:
+      type: ratio
+      numerator:
+        source: "{{ source_table }}"
+        measure:
+          type: "{{ numerator_agg | default('sum') }}"
+          column: "{{ numerator_column }}"
+        filter: "{{ numerator_filter or base_filter or '' }}"
+      denominator:
+        source: "{{ source_table }}"
+        measure:
+          type: "{{ denominator_agg | default('sum') }}"
+          column: "{{ denominator_column }}"
+        filter: "{{ denominator_filter or base_filter or '' }}"
+      dimensions: "{{ dimensions or '$ref(_base.dimension_groups.standard_dimensions)' }}"
+      auto_variants:
+        time_comparisons:
+        - type: wow
+          label_suffix: _wow
+        - type: mom
+          label_suffix: _mom
+        - type: yoy
+          label_suffix: _yoy
+        territory_splits:
+        - territory: UK
+          label_suffix: _uk
+        - territory: CE
+          label_suffix: _ce
+        - territory: EE
+          label_suffix: _ee
+        channel_splits:
+        - shop_code: shopify
+          label_suffix: _shopify
+        - shop_code: amazon
+          label_suffix: _amazon
+        - shop_code: tiktok_shop
+          label_suffix: _tiktok
+      format:
+        type: "{{ format_type | default('percentage') }}"
+        decimal_places: "{{ decimal_places | default(2) }}"
+      meta:
+        calculation_type: ratio
+        domain: "{{ domain | default('General') }}"
+        business_criticality: "{{ criticality | default(3) }}"

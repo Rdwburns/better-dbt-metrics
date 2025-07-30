@@ -1,0 +1,92 @@
+# Template Usage Guide - Best Practices with YAML-Safe Syntax
+# This guide shows how to use templates effectively after the JSON escaping fix
+
+imports:
+  - _base.templates as t
+  - _base.dimensions as dims
+
+metrics:
+  # Example 1: Simple ratio with inline template - RECOMMENDED approach
+  - name: average_order_value
+    $use: t.inline_ratio_metric
+    parameters:
+      source_table: models.marts.core.fct_unified_orders
+      numerator_column: total_revenue
+      denominator_column: total_orders
+      # Use single quotes in SQL filters
+      base_filter: "date >= '2020-01-01' AND status = 'completed'"
+      format_type: currency
+      decimal_places: 2
+
+  # Example 2: ROAS metric with channel-specific filter
+  - name: paid_media_roas
+    $use: t.inline_ratio_metric
+    parameters:
+      source_table: models.marts.marketing.fct_paid_media
+      numerator_column: attributed_revenue
+      denominator_column: spend
+      # Complex SQL with proper quoting
+      base_filter: "channel IN ('Google Ads', 'Facebook', 'TikTok') AND date >= '2024-01-01'"
+      format_type: percentage
+      decimal_places: 1
+
+  # Example 3: Using template with no filter (empty string default)
+  - name: total_conversion_rate
+    $use: t.inline_ratio_metric
+    parameters:
+      source_table: models.marts.core.fct_conversions
+      numerator_column: converted_sessions
+      denominator_column: total_sessions
+      # No filter needed - template will use empty string
+      format_type: percentage
+
+  # Example 4: Revenue metric with territory filter
+  - name: uk_revenue
+    $use: t.revenue_metric
+    parameters:
+      source_table: models.marts.core.fct_unified_orders
+      revenue_column: total_revenue
+      # Territory-specific filter
+      base_filter: "territory = 'UK' AND date >= '2023-01-01'"
+      category: "Regional Revenue"
+      criticality: 5
+
+# Best Practices:
+# 1. Always use single quotes in SQL strings within filters
+# 2. Use the 'or' syntax in templates instead of nested defaults
+# 3. Omit optional parameters if not needed - templates handle defaults
+# 4. For complex filters, consider using YAML multiline syntax:
+
+  - name: complex_metric_example
+    $use: t.inline_ratio_metric
+    parameters:
+      source_table: models.marts.core.fct_transactions
+      numerator_column: successful_amount
+      denominator_column: total_amount
+      base_filter: |
+        date >= '2024-01-01' 
+        AND status IN ('completed', 'settled')
+        AND channel != 'test'
+        AND region = 'US'
+
+# Template Parameter Reference:
+# 
+# inline_ratio_metric:
+#   - source_table (required): The fact table to query
+#   - numerator_column (required): Column for the numerator
+#   - denominator_column (required): Column for the denominator
+#   - numerator_agg (optional): Aggregation type (default: 'sum')
+#   - denominator_agg (optional): Aggregation type (default: 'sum')
+#   - base_filter (optional): SQL WHERE clause filter
+#   - numerator_filter (optional): Additional filter for numerator only
+#   - denominator_filter (optional): Additional filter for denominator only
+#   - dimensions (optional): Reference to dimension group
+#   - format_type (optional): 'percentage', 'currency', 'number'
+#   - decimal_places (optional): Number of decimal places
+#
+# revenue_metric:
+#   - source_table (optional): Override default revenue table
+#   - revenue_column (required): The revenue amount column
+#   - base_filter (optional): SQL WHERE clause filter
+#   - category (optional): Metric category for organization
+#   - criticality (optional): Business criticality score (1-5)

@@ -1,0 +1,64 @@
+version: 1
+
+metric_templates:
+  inline_ratio_metric:
+    description: "Template for inline ratio metrics"
+    parameters:
+      - name: source_table
+        type: string
+        required: true
+      - name: numerator_column
+        type: string
+        required: true
+      - name: denominator_column
+        type: string
+        required: true
+      - name: numerator_agg
+        type: string
+        default: sum
+      - name: denominator_agg
+        type: string
+        default: sum
+      - name: base_filter
+        type: string
+        default: 'date >= "2020-01-01"'
+      - name: numerator_filter
+        type: string
+      - name: denominator_filter
+        type: string
+      - name: dimensions
+        type: string
+      - name: format_type
+        type: string
+        default: percentage
+      - name: decimal_places
+        type: number
+        default: 2
+      - name: domain
+        type: string
+        default: General
+      - name: criticality
+        type: number
+        default: 3
+    template:
+      type: ratio
+      numerator:
+        source: "{{ source_table }}"
+        measure:
+          type: "{{ numerator_agg }}"
+          column: "{{ numerator_column }}"
+        filter: "{{ numerator_filter | default(base_filter) }}"
+      denominator:
+        source: "{{ source_table }}"
+        measure:
+          type: "{{ denominator_agg }}"
+          column: "{{ denominator_column }}"
+        filter: "{{ denominator_filter | default(base_filter) }}"
+      dimensions: "$ref(_base.dimension_groups.standard_dimensions)"
+      format:
+        type: "{{ format_type }}"
+        decimal_places: "{{ decimal_places }}"
+      meta:
+        calculation_type: ratio
+        domain: "{{ domain }}"
+        business_criticality: "{{ criticality }}"

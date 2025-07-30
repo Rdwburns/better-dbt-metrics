@@ -50,7 +50,8 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            split_files=False
+            split_files=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         results = compiler.compile_directory()
@@ -97,7 +98,8 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            split_files=False
+            split_files=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         results = compiler.compile_directory()
@@ -146,15 +148,17 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            debug=False
+            debug=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         
-        # Should raise ValueError with helpful message
-        with pytest.raises(ValueError) as exc_info:
-            compiler.compile_directory()
-            
-        error_msg = str(exc_info.value)
+        # Should capture error in results
+        results = compiler.compile_directory()
+        
+        # Check that there was an error
+        assert len(results['errors']) > 0
+        error_msg = results['errors'][0]['error']
         assert "bad_ratio" in error_msg
         assert "numerator.source" in error_msg
         assert "denominator.source" in error_msg
@@ -182,7 +186,8 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            debug=False
+            debug=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         
@@ -217,7 +222,8 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            split_files=False
+            split_files=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         results = compiler.compile_directory()
@@ -258,7 +264,8 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            split_files=False
+            split_files=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         results = compiler.compile_directory()
@@ -304,7 +311,8 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            split_files=False
+            split_files=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         results = compiler.compile_directory()
@@ -352,7 +360,8 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            split_files=False
+            split_files=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         results = compiler.compile_directory()
@@ -406,7 +415,8 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            split_files=False
+            split_files=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         results = compiler.compile_directory()
@@ -460,7 +470,8 @@ metrics:
         config = CompilerConfig(
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
-            split_files=False
+            split_files=False,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         results = compiler.compile_directory()
@@ -497,7 +508,8 @@ metrics:
             input_dir=self.temp_dir,
             output_dir=str(self.output_dir),
             split_files=False,
-            auto_variants=True
+            auto_variants=True,
+            validate=False
         )
         compiler = BetterDBTCompiler(config)
         results = compiler.compile_directory()

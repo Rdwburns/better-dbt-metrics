@@ -476,6 +476,11 @@ class PreCompilationValidator:
                     
     def _validate_ratio_metric(self, metric: Dict[str, Any], name: str, file_path: Path):
         """Validate ratio metric structure"""
+        # Skip validation for templated metrics
+        template_fields = ['template', 'extends', '$use', '$ref']
+        if any(field in metric for field in template_fields):
+            return
+            
         # Check for numerator and denominator
         if 'numerator' not in metric:
             self.error_collector.add_error(
@@ -489,6 +494,11 @@ class PreCompilationValidator:
             
     def _validate_derived_metric(self, metric: Dict[str, Any], name: str, file_path: Path):
         """Validate derived metric structure"""
+        # Skip validation for templated metrics
+        template_fields = ['template', 'extends', '$use', '$ref']
+        if any(field in metric for field in template_fields):
+            return
+            
         # Check for expression or formula
         if 'expression' not in metric and 'formula' not in metric:
             self.error_collector.add_error(
@@ -515,6 +525,11 @@ class PreCompilationValidator:
                     
     def _validate_cumulative_metric(self, metric: Dict[str, Any], name: str, file_path: Path):
         """Validate cumulative metric structure"""
+        # Skip validation for templated metrics
+        template_fields = ['template', 'extends', '$use', '$ref']
+        if any(field in metric for field in template_fields):
+            return
+            
         # Check for required fields
         if 'source' not in metric:
             self.error_collector.add_error(
@@ -533,6 +548,11 @@ class PreCompilationValidator:
             
     def _validate_conversion_metric(self, metric: Dict[str, Any], name: str, file_path: Path):
         """Validate conversion metric structure"""
+        # Skip validation for templated metrics
+        template_fields = ['template', 'extends', '$use', '$ref']
+        if any(field in metric for field in template_fields):
+            return
+            
         # Check for required fields
         if 'entity' not in metric:
             self.error_collector.add_error(

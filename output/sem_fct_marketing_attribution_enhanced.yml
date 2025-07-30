@@ -1,0 +1,86 @@
+semantic_models:
+- description: Semantic model for fct_marketing_attribution_enhanced
+  dimensions:
+  - name: date
+    type: time
+    type_params:
+      time_granularity: day
+  - name: week
+    type: time
+    type_params:
+      time_granularity: week
+  - name: month
+    type: time
+    type_params:
+      time_granularity: month
+  - name: territory
+    type: categorical
+  - name: channel
+    type: categorical
+  - name: channel_category
+    type: categorical
+  - name: platform
+    type: categorical
+  - name: campaign_type
+    type: categorical
+  entities:
+  - expr: fct_marketing_attribution_enhanced_id
+    name: id
+    type: primary
+  measures:
+  - agg: sum
+    expr: attributed_revenue_gbp
+    name: paid_media_roas_numerator
+  - agg: sum
+    expr: total_spend_gbp
+    name: paid_media_roas_denominator
+  - agg: sum
+    expr: attributed_revenue_gbp
+    name: paid_media_roas_google_numerator
+  - agg: sum
+    expr: total_spend_gbp
+    name: paid_media_roas_google_denominator
+  - agg: sum
+    expr: attributed_revenue_gbp
+    name: paid_media_roas_facebook_numerator
+  - agg: sum
+    expr: total_spend_gbp
+    name: paid_media_roas_facebook_denominator
+  - agg: sum
+    expr: attributed_revenue_gbp
+    name: paid_media_roas_tiktok_numerator
+  - agg: sum
+    expr: total_spend_gbp
+    name: paid_media_roas_tiktok_denominator
+  - agg: sum
+    expr: attributed_revenue_gbp
+    name: paid_media_roas_clicks_numerator
+  - agg: sum
+    expr: total_spend_gbp
+    name: paid_media_roas_clicks_denominator
+  - agg: sum
+    expr: attributed_revenue_gbp
+    name: paid_media_roas_impressions_numerator
+  - agg: sum
+    expr: total_spend_gbp
+    name: paid_media_roas_impressions_denominator
+  - agg: sum
+    expr: attributed_revenue_gbp
+    name: paid_media_roas_conversions_numerator
+  - agg: sum
+    expr: total_spend_gbp
+    name: paid_media_roas_conversions_denominator
+  - agg: sum
+    expr: attributed_revenue_gbp
+    name: paid_media_roas_wow_numerator
+  - agg: sum
+    expr: total_spend_gbp
+    name: paid_media_roas_wow_denominator
+  - agg: sum
+    expr: attributed_revenue_gbp
+    name: paid_media_roas_mom_numerator
+  - agg: sum
+    expr: total_spend_gbp
+    name: paid_media_roas_mom_denominator
+  model: ref('fct_marketing_attribution_enhanced')
+  name: sem_fct_marketing_attribution_enhanced
