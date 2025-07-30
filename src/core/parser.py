@@ -327,9 +327,10 @@ class BetterDBTParser:
                         data['source_ref'] = {'table': table_name, 'type': 'ref'}
             
             # Recursively process nested structures
-            for key, value in data.items():
+            # Create a copy of keys to avoid dictionary changed size during iteration error
+            for key in list(data.keys()):
                 if key != 'source':  # Don't reprocess source
-                    data[key] = self._process_table_references(value)
+                    data[key] = self._process_table_references(data[key])
             return data
         elif isinstance(data, list):
             return [self._process_table_references(item) for item in data]
