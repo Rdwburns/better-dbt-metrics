@@ -363,21 +363,24 @@ class TemplateParameterRule(ValidationRule):
                 
                 # For better detection, check if the parameter name appears anywhere in the template
                 # This is more lenient but avoids false positives
-                # We check for the parameter name with word boundaries to avoid partial matches
                 import re
                 
+                # Escape the parameter name for regex
+                escaped_name = re.escape(param_name)
+                
                 # Create patterns that will match the parameter in various Jinja2 contexts
+                # Using regular strings to avoid f-string complexity with curly braces
                 patterns = [
-                    # Basic Jinja2 variable reference
-                    rf'\{{\{{\s*{re.escape(param_name)}\s*\}}\}}',  # {{ param_name }}
-                    # With filters
-                    rf'\{{\{{\s*{re.escape(param_name)}\s*\|',      # {{ param_name | filter
-                    # In strings (JSON encoded)
-                    rf'"\{{\{{\s*{re.escape(param_name)}[\s\|}]',   # "{{ param_name }}" or "{{ param_name | filter }}"
-                    # Alternative syntax
-                    rf'\$\(\s*{re.escape(param_name)}\s*\)',        # $(param_name)
+                    # Basic Jinja2 variable reference: {{ param_name }}
+                    r'\{\{\s*' + escaped_name + r'\s*\}\}',
+                    # With filters: {{ param_name | filter
+                    r'\{\{\s*' + escaped_name + r'\s*\|',
+                    # In strings (JSON encoded): "{{ param_name }}" or "{{ param_name | filter }}"
+                    r'"\{\{\s*' + escaped_name + r'[\s\|\}]',
+                    # Alternative syntax: $(param_name)
+                    r'\$\(\s*' + escaped_name + r'\s*\)',
                     # Just the parameter name with word boundaries (last resort)
-                    rf'\b{re.escape(param_name)}\b',                # param_name as a whole word
+                    r'\b' + escaped_name + r'\b',
                 ]
                 
                 # Check if parameter is used with any pattern
