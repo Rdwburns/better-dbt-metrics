@@ -1132,7 +1132,8 @@ class BetterDBTCompiler:
                 self._process_semantic_model_definition(sm_def)
         
         # Generate semantic models from metrics grouped by source
-        for source, metrics in self.metrics_by_source.items():
+        # Create a copy of the items to avoid dictionary changed size during iteration
+        for source, metrics in list(self.metrics_by_source.items()):
             # Skip if a semantic model was already explicitly defined for this source
             if any(sm['name'] == f"sem_{source}" for sm in self.semantic_models):
                 continue
