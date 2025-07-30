@@ -1,0 +1,44 @@
+semantic_models:
+- description: Order fact table with measures and dimensions
+  dimensions:
+  - expr: order_date
+    name: order_date
+    type: time
+    type_params:
+      time_granularity: day
+  - expr: date_trunc('week', order_date)
+    name: order_week
+    type: time
+    type_params:
+      time_granularity: week
+  - expr: status
+    name: order_status
+    type: categorical
+  - expr: ship_region
+    name: region
+    type: categorical
+  entities:
+  - expr: order_id
+    name: order_id
+    type: primary
+  - expr: customer_id
+    name: customer_id
+    type: foreign
+  - expr: product_id
+    name: product_id
+    type: foreign
+  measures:
+  - agg: sum
+    agg_time_dimension: order_date
+    expr: order_id
+    name: order_count
+  - agg: sum
+    agg_time_dimension: order_date
+    expr: order_amount
+    name: total_revenue
+  - agg: sum
+    agg_time_dimension: order_date
+    expr: order_amount
+    name: average_order_value
+  model: ref('fct_orders')
+  name: sem_orders

@@ -1,0 +1,31 @@
+metrics:
+- description: ''
+  label: Daily Transactions
+  name: daily_transactions
+  type: simple
+  type_params:
+    measure: transaction_count
+- description: ''
+  label: Session Duration Trend
+  name: session_duration_trend
+  type: simple
+  type_params:
+    measure: total_duration
+- description: Daily revenue from orders
+  label: Daily Revenue
+  name: daily_revenue
+  type: simple
+  type_params:
+    measure: total_revenue
+- description: Weekly order count
+  label: Weekly Orders
+  name: weekly_orders
+  type: simple
+  type_params:
+    measure: order_count
+- description: Average order value by region
+  label: Aov By Region
+  name: aov_by_region
+  type: simple
+  type_params:
+    measure: average_order_value

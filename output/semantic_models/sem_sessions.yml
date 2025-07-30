@@ -1,0 +1,37 @@
+semantic_models:
+- description: Semantic model for sessions
+  dimensions:
+  - expr: session_start_time
+    name: date
+    type: time
+    type_params:
+      time_granularity: day
+  - expr: date_trunc('week', session_start_time)
+    name: week
+    type: time
+    type_params:
+      time_granularity: week
+  - expr: date_trunc('month', session_start_time)
+    name: month
+    type: time
+    type_params:
+      time_granularity: month
+  entities:
+  - expr: session_id
+    name: session_id
+    type: primary
+  measures:
+  - agg: sum
+    agg_time_dimension: date
+    expr: session_id
+    name: session_count
+  - agg: sum
+    agg_time_dimension: date
+    expr: session_duration_seconds
+    name: total_duration
+  - agg: sum
+    agg_time_dimension: date
+    expr: user_id
+    name: unique_users
+  model: ref('fct_sessions')
+  name: sem_sessions

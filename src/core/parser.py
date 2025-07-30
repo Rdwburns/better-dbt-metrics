@@ -107,9 +107,21 @@ class BetterDBTParser:
             # Process table references in source fields
             processed_data = self._process_table_references(processed_data)
             
-            # Handle template inheritance
+            # Handle template inheritance for metrics
             if 'metrics' in processed_data:
                 processed_data['metrics'] = self._process_metric_inheritance(processed_data['metrics'])
+                
+            # Handle template inheritance for semantic models
+            if 'semantic_models' in processed_data:
+                processed_data['semantic_models'] = self._process_semantic_model_inheritance(processed_data['semantic_models'])
+                
+            # Process entity sets if present
+            if 'entity_sets' in processed_data and 'semantic_models' in processed_data:
+                processed_data['semantic_models'] = self._apply_entity_sets(
+                    processed_data['semantic_models'], 
+                    processed_data.get('entity_sets', {}),
+                    processed_data.get('entities', {})
+                )
                 
             # Store current data for compiler access
             self.current_data = processed_data
@@ -406,6 +418,69 @@ class BetterDBTParser:
                 merged.append(dim)
                 
         return merged
+    
+    def _process_semantic_model_inheritance(self, semantic_models: List[Dict]) -> List[Dict]:
+        """Process semantic model inheritance (templates)"""
+        processed_models = []
+        
+        for model in semantic_models:
+            if 'template' in model:
+                processed = self._apply_semantic_model_template(model)
+                processed_models.append(processed)
+            else:
+                processed_models.append(model)
+                
+        return processed_models
+    
+    def _apply_semantic_model_template(self, model: Dict) -> Dict:
+        """Apply template to a semantic model"""
+        result = {}
+        
+        # For now, just copy the model as-is with the template field
+        # The compiler will handle template expansion
+        result.update(deepcopy(model))
+        return result
+    
+    def _apply_entity_sets(self, semantic_models: List[Dict], entity_sets: Dict[str, Any], entities: Dict[str, Any]) -> List[Dict]:
+        """Apply entity sets to semantic models"""
+        processed_models = []
+        
+        for model in semantic_models:
+            if 'entity_set' in model and model['entity_set'] in entity_sets:
+                # Apply entity set
+                entity_set = entity_sets[model['entity_set']]
+                model_copy = deepcopy(model)
+                
+                # Initialize entities list if not present
+                if 'entities' not in model_copy:
+                    model_copy['entities'] = []
+                
+                # Add primary entity from entity set
+                if 'primary_entity' in entity_set:
+                    model_copy['entities'].append(entity_set['primary_entity'])
+                
+                # Add foreign entities
+                if 'foreign_entities' in entity_set:
+                    for entity in entity_set['foreign_entities']:
+                        # Handle reference to global entities
+                        if isinstance(entity, dict) and '$ref' in entity:
+                            ref_path = entity['$ref']
+                            if ref_path.startswith('entities.'):
+                                entity_name = ref_path.split('.', 1)[1]
+                                if entity_name in entities:
+                                    model_copy['entities'].append(entities[entity_name])
+                            else:
+                                model_copy['entities'].append(entity)
+                        else:
+                            model_copy['entities'].append(entity)
+                
+                # Remove entity_set field after applying
+                model_copy.pop('entity_set', None)
+                processed_models.append(model_copy)
+            else:
+                processed_models.append(model)
+        
+        return processed_models
 
 
 class ReferenceResolver:

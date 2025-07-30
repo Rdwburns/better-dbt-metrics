@@ -1,0 +1,99 @@
+version: 2
+
+# Example: Explicitly defined semantic models
+
+# Define reusable entities
+entities:
+  - name: customer_id
+    type: foreign
+    expr: customer_id
+    
+  - name: product_id
+    type: foreign
+    expr: product_id
+
+# Define semantic models
+semantic_models:
+  - name: orders
+    description: "Order fact table with measures and dimensions"
+    source: fct_orders  # This becomes ref('fct_orders')
+    
+    # Entity definitions
+    entities:
+      - name: order_id
+        type: primary
+        expr: order_id
+      - name: customer_id
+        type: foreign
+        expr: customer_id
+      - name: product_id
+        type: foreign
+        expr: product_id
+    
+    # Dimension definitions with full control
+    dimensions:
+      - name: order_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: order_date
+        
+      - name: order_week
+        type: time
+        type_params:
+          time_granularity: week
+        expr: date_trunc('week', order_date)
+        
+      - name: order_status
+        type: categorical
+        expr: status
+        
+      - name: region
+        type: categorical
+        expr: ship_region
+    
+    # Measures defined at semantic model level
+    measures:
+      - name: order_count
+        agg: count
+        expr: order_id
+        agg_time_dimension: order_date
+        
+      - name: total_revenue
+        agg: sum
+        expr: order_amount
+        agg_time_dimension: order_date
+        
+      - name: average_order_value
+        agg: avg
+        expr: order_amount
+        agg_time_dimension: order_date
+
+# Now define metrics that reference the semantic model
+metrics:
+  - name: daily_revenue
+    type: simple
+    description: "Daily revenue from orders"
+    semantic_model: orders  # References the semantic model above
+    measure: total_revenue  # References the measure in the semantic model
+    dimensions:
+      - order_date
+      - region
+    
+  - name: weekly_orders
+    type: simple
+    description: "Weekly order count"
+    semantic_model: orders
+    measure: order_count
+    dimensions:
+      - order_week
+      - order_status
+      
+  - name: aov_by_region
+    type: simple
+    description: "Average order value by region"
+    semantic_model: orders
+    measure: average_order_value
+    dimensions:
+      - region
+      - order_date

@@ -1,0 +1,108 @@
+version: 2
+
+# Example: Semantic model templates for reusability
+
+# Define semantic model templates
+semantic_model_templates:
+  standard_fact_table:
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: date_column
+        type: string
+        required: true
+      - name: primary_key
+        type: string
+        default: "id"
+    template:
+      source: "{{ table_name }}"
+      entities:
+        - name: "{{ primary_key }}"
+          type: primary
+          expr: "{{ primary_key }}"
+      dimensions:
+        - name: date
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ date_column }}"
+        - name: week
+          type: time
+          type_params:
+            time_granularity: week
+          expr: "date_trunc('week', {{ date_column }})"
+        - name: month
+          type: time
+          type_params:
+            time_granularity: month
+          expr: "date_trunc('month', {{ date_column }})"
+
+# Define entity sets for common patterns
+entity_sets:
+  - name: ecommerce_fact
+    primary_entity:
+      name: id
+      type: primary
+    foreign_entities:
+      - name: customer_id
+        type: foreign
+        expr: customer_id
+      - name: product_id
+        type: foreign
+        expr: product_id
+
+# Use templates to define semantic models
+semantic_models:
+  - name: transactions
+    template: standard_fact_table
+    parameters:
+      table_name: fct_transactions
+      date_column: transaction_date
+      primary_key: transaction_id
+    # Additional fields (merged with template)
+    entity_set: ecommerce_fact
+    measures:
+      - name: transaction_count
+        agg: count
+        expr: transaction_id
+        agg_time_dimension: date
+      - name: transaction_amount
+        agg: sum
+        expr: amount
+        agg_time_dimension: date
+
+  - name: sessions
+    template: standard_fact_table
+    parameters:
+      table_name: fct_sessions
+      date_column: session_start_time
+      primary_key: session_id
+    # Additional measures
+    measures:
+      - name: session_count
+        agg: count
+        expr: session_id
+        agg_time_dimension: date
+      - name: total_duration
+        agg: sum
+        expr: session_duration_seconds
+        agg_time_dimension: date
+      - name: unique_users
+        agg: count_distinct
+        expr: user_id
+        agg_time_dimension: date
+
+# Metrics can now reference these semantic models
+metrics:
+  - name: daily_transactions
+    type: simple
+    semantic_model: transactions
+    measure: transaction_count
+    dimensions: [date, customer_id]
+    
+  - name: session_duration_trend
+    type: simple
+    semantic_model: sessions
+    measure: total_duration
+    dimensions: [week]

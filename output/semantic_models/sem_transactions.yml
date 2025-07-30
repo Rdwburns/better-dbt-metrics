@@ -1,0 +1,32 @@
+semantic_models:
+- description: Semantic model for transactions
+  dimensions:
+  - expr: transaction_date
+    name: date
+    type: time
+    type_params:
+      time_granularity: day
+  - expr: date_trunc('week', transaction_date)
+    name: week
+    type: time
+    type_params:
+      time_granularity: week
+  - expr: date_trunc('month', transaction_date)
+    name: month
+    type: time
+    type_params:
+      time_granularity: month
+  entities:
+  - name: id
+    type: primary
+  measures:
+  - agg: sum
+    agg_time_dimension: date
+    expr: transaction_id
+    name: transaction_count
+  - agg: sum
+    agg_time_dimension: date
+    expr: amount
+    name: transaction_amount
+  model: ref('fct_transactions')
+  name: sem_transactions

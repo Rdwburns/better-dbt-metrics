@@ -177,6 +177,11 @@ class BetterDBTCompiler:
         if 'metric_templates' in parsed_data:
             for name, template_def in parsed_data['metric_templates'].items():
                 self.templates.engine.register_template(name, template_def)
+                
+        # Register semantic model templates
+        if 'semantic_model_templates' in parsed_data:
+            for name, template_def in parsed_data['semantic_model_templates'].items():
+                self.templates.engine.register_template(name, template_def)
             
         # Register dimension groups from this file
         if 'dimension_groups' in parsed_data:
@@ -216,6 +221,26 @@ class BetterDBTCompiler:
                 for name, pattern_def in config['offset_patterns'].items():
                     self.offset_patterns[name] = pattern_def
                     
+        # Process explicitly defined semantic models first
+        if 'semantic_models' in parsed_data:
+            if self.config.debug:
+                print(f"[DEBUG] Found {len(parsed_data['semantic_models'])} semantic models in file")
+            
+            for sm_def in parsed_data['semantic_models']:
+                try:
+                    if self.config.debug:
+                        print(f"\n[DEBUG] Processing semantic model: {sm_def.get('name', 'unknown')}")
+                    
+                    self._process_semantic_model_definition(sm_def)
+                except Exception as e:
+                    sm_name = sm_def.get('name', 'unknown')
+                    if self.config.debug:
+                        import traceback
+                        print(f"\n[DEBUG] Error processing semantic model '{sm_name}'")
+                        print(f"[DEBUG] Error: {str(e)}")
+                        traceback.print_exc()
+                    raise ValueError(f"Error processing semantic model '{sm_name}': {e}")
+        
         # Process metrics
         metrics = parsed_data.get('metrics', [])
         
@@ -265,6 +290,11 @@ class BetterDBTCompiler:
             
             # Group by source for semantic model generation
             source = compiled_metric.get('source')
+            
+            # Skip grouping for metrics that reference semantic models
+            if 'semantic_model' in compiled_metric:
+                # These metrics don't need auto-generated semantic models
+                continue
             
             # Validate that metric has a source
             if not source:
@@ -562,8 +592,15 @@ class BetterDBTCompiler:
                     if self.config.debug:
                         print(f"[DEBUG] Setting composite source 'conversion_{metric_def.get('name')}' for conversion metric with different base/conversion sources")
         
-        # Only add source if it exists (not all metric types have source)
-        if 'source' in metric_def:
+        # Handle semantic model reference
+        if 'semantic_model' in metric_def:
+            # Metric references a semantic model instead of a source
+            compiled['semantic_model'] = metric_def['semantic_model']
+            # If a measure is just a string, it references a measure in the semantic model
+            if 'measure' in metric_def and isinstance(metric_def['measure'], str):
+                compiled['measure_ref'] = metric_def['measure']
+        elif 'source' in metric_def:
+            # Traditional source-based metric
             compiled['source'] = metric_def['source']
         
         # Preserve source_ref metadata if it exists
@@ -685,6 +722,35 @@ class BetterDBTCompiler:
             
         # Handle extends (already processed by parser)
         return metric_def
+    
+    def _expand_semantic_model_template(self, sm_def: Dict[str, Any]) -> Dict[str, Any]:
+        """Expand semantic model that uses template"""
+        template_name = sm_def['template']
+        params = sm_def.get('parameters', sm_def.get('params', {}))
+        
+        if self.config.debug:
+            print(f"[DEBUG] Expanding semantic model template: {template_name}")
+            print(f"[DEBUG] Parameters: {params}")
+        
+        try:
+            # Check if template exists in registered templates
+            # Note: We're reusing the same template system for semantic models
+            expanded = self.templates.expand(template_name, params)
+            if self.config.debug:
+                print(f"[DEBUG] Semantic model template expanded successfully")
+                print(f"[DEBUG] Expanded keys: {list(expanded.keys())}")
+        except Exception as e:
+            if self.config.debug:
+                print(f"[DEBUG] Semantic model template expansion failed: {e}")
+            # Template might not be found, return as-is
+            return sm_def
+        
+        # Merge with semantic model definition (sm fields override template)
+        for key, value in sm_def.items():
+            if key not in ['template', 'parameters', 'params']:
+                expanded[key] = value
+                
+        return expanded
         
     def _expand_dimensions(self, dimensions: List[Any]) -> List[Dict[str, Any]]:
         """Expand dimension references including groups"""
@@ -699,12 +765,31 @@ class BetterDBTCompiler:
         
         for dim in dimensions:
             if isinstance(dim, str):
-                # Check if it's a reference
+                # Check if it's a reference in string format: $ref(path)
                 if dim.startswith('$ref(') and dim.endswith(')'):
-                    # This is an unresolved reference, skip it
+                    # Extract the reference path
+                    ref_path = dim[5:-1]  # Remove $ref( and )
                     if self.config.debug:
-                        print(f"[DEBUG] Skipping unresolved string reference: {dim}")
-                    continue
+                        print(f"[DEBUG] Processing string reference: {ref_path}")
+                    
+                    # Convert string $ref() to dict format for processing
+                    ref_dict = {'$ref': ref_path}
+                    try:
+                        if self.config.debug:
+                            print(f"[DEBUG] Attempting to expand dimension group reference: {ref_dict}")
+                            print(f"[DEBUG] Available dimension groups: {list(self.dimension_groups.groups.keys())}")
+                        group_dims = self.dimension_groups.expand_dimension_reference(ref_dict)
+                        if self.config.debug:
+                            print(f"[DEBUG] Expanded to: {group_dims}")
+                        if isinstance(group_dims, list):
+                            expanded.extend(group_dims)
+                        else:
+                            expanded.append(group_dims)
+                    except Exception as e:
+                        print(f"Warning: Error expanding dimension reference {dim}: {e}")
+                        if self.config.debug:
+                            import traceback
+                            traceback.print_exc()
                 else:
                     # Simple dimension name
                     expanded.append({'name': dim})
@@ -1183,10 +1268,8 @@ class BetterDBTCompiler:
         
     def _generate_semantic_models(self):
         """Generate dbt semantic models from compiled metrics"""
-        # Check if any semantic models were explicitly defined
-        if 'semantic_models' in self.parser.current_data:
-            for sm_def in self.parser.current_data['semantic_models']:
-                self._process_semantic_model_definition(sm_def)
+        # Semantic models have already been added during file compilation
+        # Now we need to generate semantic models from metrics that don't reference existing ones
         
         # First pass: Create semantic models for non-composite sources
         composite_sources = {}
@@ -1194,10 +1277,14 @@ class BetterDBTCompiler:
         # Generate semantic models from metrics grouped by source
         # Create a copy of the items to avoid dictionary changed size during iteration
         for source, metrics in list(self.metrics_by_source.items()):
+            # Skip metrics that reference semantic models
+            metrics_needing_models = [m for m in metrics if 'semantic_model' not in m]
+            if not metrics_needing_models:
+                continue
             # Check if this is a composite source
             if source.startswith('ratio_') or source.startswith('conversion_'):
                 # Save for second pass
-                composite_sources[source] = metrics
+                composite_sources[source] = metrics_needing_models
                 continue
             # Skip if a semantic model was already explicitly defined for this source
             if any(sm['name'] == f"sem_{source}" for sm in self.semantic_models):
@@ -1209,7 +1296,7 @@ class BetterDBTCompiler:
             dimension_names = set()
             measure_names = set()
             
-            for metric in metrics:
+            for metric in metrics_needing_models:
                 # Add dimensions
                 dimensions = metric.get('dimensions', [])
                 if not isinstance(dimensions, list):
@@ -1362,9 +1449,28 @@ class BetterDBTCompiler:
             
     def _process_semantic_model_definition(self, sm_def: Dict[str, Any]):
         """Process an explicitly defined semantic model"""
+        # First check if this uses a template
+        if 'template' in sm_def:
+            sm_def = self._expand_semantic_model_template(sm_def)
+        
+        # Determine the model reference
+        if 'model' in sm_def:
+            model_ref = sm_def['model']
+        elif 'source' in sm_def:
+            # Support source field for backward compatibility
+            source = sm_def['source']
+            # Handle ref() format
+            if isinstance(source, str) and source.startswith('ref('):
+                model_ref = source
+            else:
+                model_ref = f"ref('{source}')"
+        else:
+            # Default to using the name as the model reference
+            model_ref = f"ref('{sm_def['name']}')"
+        
         semantic_model = {
-            'name': sm_def['name'],
-            'model': f"ref('{sm_def.get('source', sm_def['name'])}')",
+            'name': f"sem_{sm_def['name']}",  # Prefix with sem_ for consistency
+            'model': model_ref,
             'description': sm_def.get('description', f"Semantic model for {sm_def['name']}"),
         }
         
@@ -1373,14 +1479,25 @@ class BetterDBTCompiler:
             entity_set = self.entity_sets[sm_def['entity_set']]
             # Build entities from entity set
             entities = []
-            primary = entity_set['primary_entity']
-            if primary in self.entities:
+            primary_entity_def = entity_set['primary_entity']
+            # Get the entity name - could be a string or dict
+            if isinstance(primary_entity_def, str):
+                primary = primary_entity_def
+            elif isinstance(primary_entity_def, dict):
+                primary = primary_entity_def.get('name')
+            else:
+                primary = None
+                
+            if primary and primary in self.entities:
                 primary_def = self.entities[primary]
                 entities.append({
                     'name': primary,
                     'type': 'primary',
                     'expr': primary_def.get('column', primary)
                 })
+            elif isinstance(primary_entity_def, dict):
+                # Entity is defined inline in the entity set
+                entities.append(primary_entity_def)
                 
                 # Add included entities
                 for include in entity_set.get('includes', []):
@@ -1420,8 +1537,42 @@ class BetterDBTCompiler:
                 entities.append(entity_dict)
             semantic_model['entities'] = entities
         
-        # Copy other fields
-        for field in ['dimensions', 'measures', 'meta', 'config', 'time_spine_table_configurations', 'primary_time_dimension', 'joins']:
+        # Process dimensions - convert to dbt format
+        if 'dimensions' in sm_def:
+            semantic_model['dimensions'] = []
+            for dim in sm_def['dimensions']:
+                # Convert dimension to dbt format
+                if isinstance(dim, dict):
+                    semantic_model['dimensions'].append(self._to_dbt_dimension(dim))
+                else:
+                    # String dimension - convert to basic categorical
+                    semantic_model['dimensions'].append({
+                        'name': dim,
+                        'type': 'categorical'
+                    })
+        
+        # Process measures - convert to dbt format
+        if 'measures' in sm_def:
+            semantic_model['measures'] = []
+            for measure in sm_def['measures']:
+                # Find aggregation time dimension
+                agg_time_dim = measure.get('agg_time_dimension')
+                if not agg_time_dim and 'dimensions' in sm_def:
+                    # Try to find a time dimension
+                    agg_time_dim = self._find_time_dimension(sm_def['dimensions'])
+                
+                dbt_measure = self._to_dbt_measure(measure, measure['name'], agg_time_dim)
+                semantic_model['measures'].append(dbt_measure)
+        
+        # Handle auto-inference if enabled
+        if sm_def.get('auto_infer', {}).get('dimensions', False):
+            # This would require schema introspection - mark for future implementation
+            if 'meta' not in semantic_model:
+                semantic_model['meta'] = {}
+            semantic_model['meta']['auto_infer_dimensions'] = True
+            
+        # Copy other fields directly
+        for field in ['meta', 'config', 'time_spine_table_configurations', 'primary_time_dimension', 'joins']:
             if field in sm_def:
                 semantic_model[field] = sm_def[field]
         
@@ -1467,9 +1618,14 @@ class BetterDBTCompiler:
             }
             
             if dim.get('type') == 'time':
-                dbt_dim['type_params'] = {
-                    'time_granularity': dim.get('grain', 'day')
-                }
+                # Check if type_params already exists (from templates)
+                if 'type_params' in dim:
+                    dbt_dim['type_params'] = dim['type_params']
+                else:
+                    # Build from grain field
+                    dbt_dim['type_params'] = {
+                        'time_granularity': dim.get('grain', 'day')
+                    }
                 
             if 'expr' in dim:
                 dbt_dim['expr'] = dim['expr']
@@ -1786,7 +1942,16 @@ class BetterDBTCompiler:
         
         # Add aggregation time dimension if available
         if 'agg_time_dimension' in measure:
-            dbt_measure['agg_time_dimension'] = measure['agg_time_dimension']
+            agg_time_dim = measure['agg_time_dimension']
+            # Validate that agg_time_dimension is a string, not a reference
+            if isinstance(agg_time_dim, str) and not agg_time_dim.startswith('$ref'):
+                dbt_measure['agg_time_dimension'] = agg_time_dim
+            else:
+                if self.config.debug:
+                    print(f"[DEBUG] Warning: Invalid agg_time_dimension '{agg_time_dim}' - must be a dimension name, not a reference")
+                # Try to use the first time dimension if available
+                if time_dimension:
+                    dbt_measure['agg_time_dimension'] = time_dimension
         elif time_dimension:
             # Use the passed time dimension if no explicit agg_time_dimension
             dbt_measure['agg_time_dimension'] = time_dimension
@@ -1879,9 +2044,18 @@ class BetterDBTCompiler:
         
         # Add type-specific parameters
         if metric['type'] == 'simple':
-            dbt_metric['type_params'] = {
-                'measure': f"{metric['name']}_measure"
-            }
+            # Check if metric references a semantic model
+            if 'semantic_model' in metric:
+                # Metric references a measure in a semantic model
+                measure_ref = metric.get('measure_ref', metric.get('measure', f"{metric['name']}_measure"))
+                dbt_metric['type_params'] = {
+                    'measure': measure_ref
+                }
+            else:
+                # Traditional source-based metric
+                dbt_metric['type_params'] = {
+                    'measure': f"{metric['name']}_measure"
+                }
         elif metric['type'] == 'ratio':
             # Handle ratio metrics
             if 'numerator' in metric and 'denominator' in metric:

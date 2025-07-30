@@ -190,6 +190,9 @@ class DimensionGroupManager:
                 ref_path = ref['$ref']
                 if ref_path.startswith('dimension_groups.'):
                     group_name = ref_path.split('.', 1)[1]
+                elif ref_path.startswith('dims.'):
+                    # Handle dims. prefix (common alias for dimension_groups)
+                    group_name = ref_path.split('.', 1)[1]
                 else:
                     # Allow simple group name reference
                     group_name = ref_path

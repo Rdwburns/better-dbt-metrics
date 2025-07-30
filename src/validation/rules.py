@@ -59,10 +59,11 @@ class RequiredFieldsRule(ValidationRule):
             metric_type = metric.get('type', 'simple')
             
             if metric_type == 'simple':
-                if not metric.get('source') and not metric.get('measure', {}).get('source'):
+                # Check for either source or semantic_model
+                if not metric.get('source') and not metric.get('semantic_model') and not metric.get('measure', {}).get('source'):
                     result.add_error(ValidationError(
                         file_path=str(file_path),
-                        message=f"Simple metric '{metric.get('name')}' must have a source"
+                        message=f"Simple metric '{metric.get('name')}' must have either a 'source' or 'semantic_model'"
                     ))
                 if not metric.get('measure'):
                     result.add_error(ValidationError(

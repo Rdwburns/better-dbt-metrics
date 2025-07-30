@@ -287,7 +287,10 @@ class PreCompilationValidator:
         # Check for unknown top-level keys in metric files
         valid_keys = {
             'version', 'imports', 'metrics', 'dimension_groups', 
-            'metric_templates', 'meta', 'config'
+            'metric_templates', 'meta', 'config',
+            # Semantic model support
+            'semantic_models', 'semantic_model_templates', 'entities', 'entity_sets',
+            'time_spine', 'join_paths', 'join_path_aliases', 'offset_window_config'
         }
         unknown_keys = set(data.keys()) - valid_keys
         if unknown_keys:
@@ -448,10 +451,17 @@ class PreCompilationValidator:
         if any(field in metric for field in template_fields):
             return
             
-        # Check for source
-        if 'source' not in metric:
+        # Check for source or semantic_model
+        if 'source' not in metric and 'semantic_model' not in metric:
             self.error_collector.add_error(
-                ErrorFactory.missing_required_field('source', name, 'simple', file_path)
+                CompilationError(
+                    message=f"Missing required field 'source' or 'semantic_model' for simple metric",
+                    category=ErrorCategory.METRIC_DEFINITION,
+                    severity=ErrorSeverity.ERROR,
+                    file_path=file_path,
+                    metric_name=name,
+                    suggestion="A simple metric requires either 'source' (table name) or 'semantic_model' (reference to a semantic model)"
+                )
             )
             
         # Check for measure
