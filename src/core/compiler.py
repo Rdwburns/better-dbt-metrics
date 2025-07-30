@@ -1992,13 +1992,15 @@ class BetterDBTCompiler:
             return None
         
         # Create a simple metric
+        # For ratio components, the measure name in the semantic model is just the metric name
+        # (e.g., "contribution_margin_1_pc_numerator" not "contribution_margin_1_pc_numerator_measure")
         component_metric = {
             'name': metric_name,
             'description': f"{component.capitalize()} of {parent_metric.get('description', parent_metric['name'])}",
             'type': 'simple',
             'label': f"{parent_metric.get('label', parent_metric['name'])} ({component})",
             'type_params': {
-                'measure': f"{metric_name}_measure"
+                'measure': metric_name  # Use metric name as measure name for ratio components
             }
         }
         
