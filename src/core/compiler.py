@@ -1102,6 +1102,27 @@ class BetterDBTCompiler:
             dbt_metrics = []
             for metric in self.compiled_metrics:
                 try:
+                    # For ratio metrics, we need to create component metrics first
+                    if metric['type'] == 'ratio' and 'numerator' in metric and 'denominator' in metric:
+                        # Create numerator metric
+                        num_metric = self._create_component_metric(
+                            metric, 
+                            'numerator',
+                            f"{metric['name']}_numerator"
+                        )
+                        if num_metric:
+                            dbt_metrics.append(num_metric)
+                        
+                        # Create denominator metric
+                        den_metric = self._create_component_metric(
+                            metric,
+                            'denominator', 
+                            f"{metric['name']}_denominator"
+                        )
+                        if den_metric:
+                            dbt_metrics.append(den_metric)
+                    
+                    # Convert the main metric
                     dbt_metric = self._to_dbt_metric(metric)
                     dbt_metrics.append(dbt_metric)
                 except Exception as e:
@@ -1775,20 +1796,36 @@ class BetterDBTCompiler:
         elif metric['type'] == 'ratio':
             # Handle ratio metrics
             if 'numerator' in metric and 'denominator' in metric:
-                # Create measures for numerator and denominator
-                num_measure_name = f"{metric['name']}_numerator"
-                den_measure_name = f"{metric['name']}_denominator"
+                # In dbt semantic layer, ratio metrics reference other metrics, not measures
+                # We need to create the component metrics separately
+                num_metric_name = f"{metric['name']}_numerator"
+                den_metric_name = f"{metric['name']}_denominator"
                 
-                dbt_metric['type_params'] = {
-                    'numerator': {
-                        'name': num_measure_name,
-                        'filter': metric['numerator'].get('filter')
-                    },
-                    'denominator': {
-                        'name': den_measure_name,
-                        'filter': metric['denominator'].get('filter')
+                # Simple format if no filters
+                if not metric['numerator'].get('filter') and not metric['denominator'].get('filter'):
+                    dbt_metric['type_params'] = {
+                        'numerator': num_metric_name,
+                        'denominator': den_metric_name
                     }
-                }
+                else:
+                    # Complex format with filters
+                    dbt_metric['type_params'] = {}
+                    
+                    if metric['numerator'].get('filter'):
+                        dbt_metric['type_params']['numerator'] = {
+                            'name': num_metric_name,
+                            'filter': metric['numerator']['filter']
+                        }
+                    else:
+                        dbt_metric['type_params']['numerator'] = num_metric_name
+                    
+                    if metric['denominator'].get('filter'):
+                        dbt_metric['type_params']['denominator'] = {
+                            'name': den_metric_name,
+                            'filter': metric['denominator']['filter']
+                        }
+                    else:
+                        dbt_metric['type_params']['denominator'] = den_metric_name
         elif metric['type'] == 'derived':
             # Handle derived metrics
             if 'expression' in metric or 'formula' in metric:
@@ -1923,6 +1960,44 @@ class BetterDBTCompiler:
                     dbt_metric['meta'][key] = value
                 
         return dbt_metric
+    
+    def _create_component_metric(self, parent_metric: Dict[str, Any], component: str, metric_name: str) -> Optional[Dict[str, Any]]:
+        """Create a simple metric for a ratio component (numerator or denominator)"""
+        component_data = parent_metric.get(component, {})
+        
+        # Skip if no measure defined
+        if 'measure' not in component_data:
+            return None
+        
+        # Determine the source
+        source = component_data.get('source', parent_metric.get('source'))
+        if not source:
+            return None
+        
+        # Create a simple metric
+        component_metric = {
+            'name': metric_name,
+            'description': f"{component.capitalize()} of {parent_metric.get('description', parent_metric['name'])}",
+            'type': 'simple',
+            'label': f"{parent_metric.get('label', parent_metric['name'])} ({component})",
+            'type_params': {
+                'measure': f"{metric_name}_measure"
+            }
+        }
+        
+        # Add filter if present
+        if component_data.get('filter'):
+            component_metric['filter'] = component_data['filter']
+        
+        # Add minimal config to hide these component metrics from end users
+        component_metric['config'] = {
+            'meta': {
+                'hidden': True,
+                'component_of': parent_metric['name']
+            }
+        }
+        
+        return component_metric
         
     def _write_split_output(self, output_data: Dict[str, Any]):
         """Write output to separate files"""
