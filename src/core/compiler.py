@@ -1290,32 +1290,31 @@ class BetterDBTCompiler:
                         actual_sources.add(den_source)
             
             if is_composite:
-                # Add measures to the appropriate semantic models
+                # For composite sources, we need to ensure semantic models exist for all referenced sources
+                # and add the measures to them
                 for metric in metrics:
                     if metric.get('type') == 'ratio':
-                        # Add numerator measure
+                        # Process numerator
                         num_source = metric.get('numerator', {}).get('source')
                         if num_source and 'measure' in metric.get('numerator', {}):
-                            for sm in self.semantic_models:
-                                if sm['name'] == f"sem_{num_source}":
-                                    num_measure_name = f"{metric['name']}_numerator"
-                                    if not any(m['name'] == num_measure_name for m in sm.get('measures', [])):
-                                        sm['measures'].append(
-                                            self._to_dbt_measure(metric['numerator']['measure'], num_measure_name)
-                                        )
-                                    break
+                            # Find or create semantic model for numerator source
+                            num_model = self._find_or_create_semantic_model(num_source)
+                            num_measure_name = f"{metric['name']}_numerator"
+                            if not any(m['name'] == num_measure_name for m in num_model.get('measures', [])):
+                                num_model['measures'].append(
+                                    self._to_dbt_measure(metric['numerator']['measure'], num_measure_name)
+                                )
                         
-                        # Add denominator measure
+                        # Process denominator
                         den_source = metric.get('denominator', {}).get('source')
                         if den_source and 'measure' in metric.get('denominator', {}):
-                            for sm in self.semantic_models:
-                                if sm['name'] == f"sem_{den_source}":
-                                    den_measure_name = f"{metric['name']}_denominator"
-                                    if not any(m['name'] == den_measure_name for m in sm.get('measures', [])):
-                                        sm['measures'].append(
-                                            self._to_dbt_measure(metric['denominator']['measure'], den_measure_name)
-                                        )
-                                    break
+                            # Find or create semantic model for denominator source
+                            den_model = self._find_or_create_semantic_model(den_source)
+                            den_measure_name = f"{metric['name']}_denominator"
+                            if not any(m['name'] == den_measure_name for m in den_model.get('measures', [])):
+                                den_model['measures'].append(
+                                    self._to_dbt_measure(metric['denominator']['measure'], den_measure_name)
+                                )
             
     def _process_semantic_model_definition(self, sm_def: Dict[str, Any]):
         """Process an explicitly defined semantic model"""
@@ -2074,6 +2073,30 @@ class BetterDBTCompiler:
             metric_signatures[signature] = metric_name
         
         return metric_name
+    
+    def _find_or_create_semantic_model(self, source: str) -> Dict[str, Any]:
+        """Find an existing semantic model or create a new one for the given source"""
+        # Look for existing semantic model
+        for sm in self.semantic_models:
+            if sm['name'] == f"sem_{source}":
+                return sm
+        
+        # Create a new semantic model
+        semantic_model = {
+            'name': f"sem_{source}",
+            'model': f"ref('{source}')",
+            'description': f"Semantic model for {source}",
+            'dimensions': [],
+            'measures': [],
+            'entities': [{
+                'name': 'id',
+                'type': 'primary',
+                'expr': f"{source}_id"
+            }]
+        }
+        
+        self.semantic_models.append(semantic_model)
+        return semantic_model
         
     def _write_split_output(self, output_data: Dict[str, Any]):
         """Write output to separate files"""
