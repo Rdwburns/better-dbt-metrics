@@ -1,0 +1,119 @@
+version: 2
+
+# Example: Semantic models with entity relationships
+# Shows how to define and use entity relationships for joining
+
+# Define reusable entities
+entities:
+  - name: customer
+    type: foreign
+    expr: customer_id
+    
+  - name: product
+    type: foreign
+    expr: product_id
+    
+  - name: store
+    type: foreign
+    expr: store_id
+
+# Define entity sets for common patterns
+entity_sets:
+  - name: retail_transaction
+    primary_entity:
+      name: transaction_id
+      type: primary
+    foreign_entities:
+      - $ref: entities.customer
+      - $ref: entities.product
+      - $ref: entities.store
+
+# Define semantic models using entity sets
+semantic_models:
+  - name: transactions
+    description: "Retail transaction fact table"
+    source: fct_transactions
+    entity_set: retail_transaction  # Applies all entities from the set
+    
+    dimensions:
+      - name: transaction_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: transaction_timestamp
+        
+      - name: transaction_hour
+        type: time
+        type_params:
+          time_granularity: hour
+        expr: date_trunc('hour', transaction_timestamp)
+        
+      - name: payment_method
+        type: categorical
+        expr: payment_method
+    
+    measures:
+      - name: transaction_count
+        agg: count
+        expr: transaction_id
+        agg_time_dimension: transaction_date
+        
+      - name: total_amount
+        agg: sum
+        expr: transaction_amount
+        agg_time_dimension: transaction_date
+        
+      - name: unique_customers
+        agg: count_distinct
+        expr: customer_id
+        agg_time_dimension: transaction_date
+        
+      - name: unique_products
+        agg: count_distinct
+        expr: product_id
+        agg_time_dimension: transaction_date
+
+  - name: customers
+    description: "Customer dimension"
+    source: dim_customers
+    
+    entities:
+      - name: customer_id
+        type: primary
+        expr: customer_id
+    
+    dimensions:
+      - name: customer_segment
+        type: categorical
+        expr: segment
+        
+      - name: customer_lifetime_value_tier
+        type: categorical
+        expr: ltv_tier
+        
+      - name: signup_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: created_at
+
+# Metrics can now easily analyze across joined data
+metrics:
+  - name: revenue_by_segment
+    type: simple
+    description: "Revenue breakdown by customer segment"
+    semantic_model: transactions
+    measure: total_amount
+    dimensions:
+      - transaction_date
+      - customer_segment  # This will trigger a join to customers
+      
+  - name: new_customer_transactions
+    type: simple
+    description: "Transactions from customers who signed up this month"
+    semantic_model: transactions
+    measure: transaction_count
+    filter: "signup_date >= date_trunc('month', current_date)"
+    dimensions:
+      - transaction_date
+      - customer_segment

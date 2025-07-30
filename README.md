@@ -1,21 +1,31 @@
 # Better-DBT-Metrics
 
-A **GitHub Actions-first** approach to defining dbt semantic models with powerful DRY features through imports, dimension groups, and templates.
+A complete **semantic layer toolkit** for dbt that makes defining metrics and semantic models easier, more maintainable, and more powerful through templates, imports, and intelligent code reuse.
 
-## 🎯 Why This Approach?
+## 🆕 What's New: Semantic Models!
 
-After analyzing multiple implementations and approaches, we've learned:
+Better-DBT-Metrics now supports **full semantic model definitions**, transforming it from a metrics-only tool into a complete semantic layer toolkit:
 
-### Key Learnings:
-1. **dbt's limitations** - Python models can't do file I/O during parse, forcing manual compilation
-2. **DRY is critical** - Teams copy-paste dimensions across hundreds of metrics
-3. **GitHub Actions avoid limitations** - Compile during CI/CD, not during dbt parse
-4. **Progressive complexity** - Simple for basic use, powerful when needed
+- **Define once, use everywhere**: Create semantic models with entities, dimensions, and measures
+- **Templates for semantic models**: Use templates to standardize your data models
+- **Entity management**: Define relationships between your data models
+- **Seamless metric integration**: Metrics can reference semantic models instead of raw tables
 
-### Our Solution:
-- ✅ **GitHub Actions primary** - Automated compilation in CI/CD pipeline
-- ✅ **Import & reuse** - Define dimensions, templates, and rules once
-- ✅ **dbt compatible** - Outputs standard dbt semantic models
+[Read the full guide →](docs/semantic-models-guide.md)
+
+## 🎯 Why Better-DBT-Metrics?
+
+### The Problem
+- **Repetition**: Teams copy-paste the same dimensions across hundreds of metrics
+- **Maintenance**: Updating a dimension means changing it in dozens of places
+- **Complexity**: dbt's semantic layer is powerful but verbose
+- **Limitations**: No native support for templates or imports
+
+### Our Solution
+- ✅ **Complete Semantic Layer** - Define both semantic models and metrics
+- ✅ **DRY Principles** - Import, template, and reuse everything
+- ✅ **GitHub Actions Integration** - Automated compilation in CI/CD
+- ✅ **100% dbt Compatible** - Outputs standard dbt semantic models
 
 ## 🚀 Quick Start with GitHub Actions
 
@@ -48,29 +58,49 @@ jobs:
 pip install better-dbt-metrics
 ```
 
-### 2. Define Your Metrics
+### 2. Define Your Semantic Layer
 
 ```yaml
-# metrics/revenue.yml
+# metrics/orders.yml
 version: 2
 
-# Import reusable components
-imports:
-  - ../templates/dimensions/temporal.yml as time
-  - ../templates/dimensions/customer.yml as customer
-
-metrics:
-  - name: total_revenue
-    description: "Total revenue from completed orders"
+# Define the semantic model
+semantic_models:
+  - name: orders
     source: fct_orders
-    measure:
-      type: sum
-      column: amount
-      filters:
-        - "status = 'completed'"
+    
+    entities:
+      - name: order_id
+        type: primary
+      - name: customer_id
+        type: foreign
+    
     dimensions:
-      - $ref: time.daily
-      - $ref: customer.segment
+      - name: order_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: region
+        type: categorical
+    
+    measures:
+      - name: order_count
+        agg: count
+        expr: order_id
+      - name: total_revenue
+        agg: sum
+        expr: order_amount
+
+# Define metrics using the semantic model
+metrics:
+  - name: daily_revenue
+    type: simple
+    description: "Daily revenue by region"
+    semantic_model: orders
+    measure: total_revenue
+    dimensions:
+      - order_date
+      - region
 ```
 
 ### 3. Compile to dbt Format
@@ -79,16 +109,48 @@ metrics:
 better-dbt-metrics compile --input-dir metrics/ --output-dir models/semantic/
 ```
 
-## 📚 Core Features (Built)
+## 📚 Core Features
 
-### ✨ Recent Additions
-- **🤖 Smart Suggestions** - AI-powered metric suggestions from database schema
-- **📊 Metric Catalog** - Auto-generated searchable documentation with lineage
-- **🔍 Enhanced Error Handling** - Clear, actionable error messages with suggestions
+### 1. Semantic Models (New!)
 
-## 📚 Core Features (Built)
+Define your data model once and reuse it across metrics:
 
-### 1. Import System
+```yaml
+# Define semantic model with all components
+semantic_models:
+  - name: transactions
+    source: fct_transactions
+    
+    entities:
+      - name: transaction_id
+        type: primary
+      - name: customer_id
+        type: foreign
+    
+    dimensions:
+      - name: transaction_date
+        type: time
+        type_params:
+          time_granularity: day
+    
+    measures:
+      - name: transaction_count
+        agg: count
+        expr: transaction_id
+      - name: total_amount
+        agg: sum
+        expr: amount
+
+# Use semantic model templates
+semantic_models:
+  - name: events
+    template: standard_fact_table
+    parameters:
+      table_name: fct_events
+      date_column: event_timestamp
+```
+
+### 2. Import System
 
 Import and reuse components across files:
 
@@ -106,7 +168,7 @@ metrics:
       - $ref: dim.customer_segment
 ```
 
-### 2. Metric References in Filters
+### 3. Metric References in Filters
 
 Use other metrics as dynamic thresholds in your filters:
 
@@ -114,17 +176,13 @@ Use other metrics as dynamic thresholds in your filters:
 metrics:
   - name: average_order_value
     type: simple
-    source: fct_orders
-    measure:
-      type: average
-      column: order_total
+    semantic_model: orders
+    measure: average_order_value
       
   - name: high_value_orders
     type: simple
-    source: fct_orders
-    measure:
-      type: count
-      column: order_id
+    semantic_model: orders
+    measure: order_count
     filter: "order_total > metric('average_order_value')"
 ```
 
@@ -747,18 +805,21 @@ better-dbt-metrics list-dimensions
 
 ```
 your-analytics-repo/
-├── metrics/                    # Your metric definitions
+├── metrics/                    # Your semantic models and metrics
+│   ├── _base/                 # Shared components
+│   │   ├── entities.yml       # Reusable entity definitions
+│   │   └── templates.yml      # Semantic model templates
 │   ├── finance/
-│   │   ├── revenue.yml
-│   │   └── costs.yml
+│   │   ├── orders.yml         # Orders semantic model + metrics
+│   │   └── revenue.yml        # Revenue metrics
 │   └── product/
-│       └── engagement.yml
+│       └── engagement.yml     # Product engagement metrics
 ├── templates/                  # Reusable components
 │   ├── dimensions/
 │   │   ├── temporal.yml       # Time dimensions
-│   │   └── customer.yml       # Customer attributes
-│   └── metrics/
-│       └── financial.yml      # Metric templates
+│   │   └── geographic.yml     # Geographic dimensions
+│   └── semantic_models/
+│       └── fact_table.yml     # Semantic model templates
 └── models/                     # dbt models (git-ignored)
     └── semantic/              # Compiled output goes here
 ```
@@ -772,32 +833,56 @@ version: 2
 imports:
   - ../templates/dimensions/temporal.yml as time
   - ../templates/dimensions/geographic.yml as geo
-  - ../templates/metrics/financial.yml as fin
 
-# Define dimension group
-dimension_groups:
-  revenue_analysis:
+# Define semantic model for orders
+semantic_models:
+  - name: orders
+    source: fct_orders
+    description: "Order transactions"
+    
+    entities:
+      - name: order_id
+        type: primary
+      - name: customer_id
+        type: foreign
+    
     dimensions:
       - $ref: time.daily
       - $ref: geo.country
       - name: product_category
         type: categorical
-
-# Use template with dimension group
-metrics:
-  - name: total_revenue
-    template: fin.revenue_base
-    parameters:
-      SOURCE_TABLE: fct_orders
-      AMOUNT_COLUMN: order_total
-    dimension_groups: [revenue_analysis]
     
-  - name: product_revenue
-    template: fin.revenue_base
-    parameters:
-      SOURCE_TABLE: fct_orders
-      AMOUNT_COLUMN: product_amount
-    dimension_groups: [revenue_analysis]
+    measures:
+      - name: order_count
+        agg: count
+        expr: order_id
+        agg_time_dimension: date_day
+      - name: gross_revenue
+        agg: sum
+        expr: order_total
+        agg_time_dimension: date_day
+      - name: product_revenue
+        agg: sum
+        expr: product_amount
+        agg_time_dimension: date_day
+
+# Define metrics using the semantic model
+metrics:
+  - name: daily_revenue
+    type: simple
+    semantic_model: orders
+    measure: gross_revenue
+    dimensions:
+      - date_day
+      - country
+    
+  - name: revenue_by_product
+    type: simple
+    semantic_model: orders
+    measure: product_revenue
+    dimensions:
+      - product_category
+      - date_day
 ```
 
 ## ⚙️ Configuration
@@ -859,20 +944,21 @@ validation:
 See [FEATURE_STATUS.md](FEATURE_STATUS.md) for detailed feature tracking.
 
 ### Recently Completed ✅:
+- **🏗️ Semantic Models** - Full support for defining semantic models with entities, dimensions, and measures
+- **📦 Semantic Model Templates** - Reusable templates for common semantic model patterns
+- **🔗 Entity Management** - Define and reuse entity relationships across models
 - **🤖 Smart Suggestions** - Schema analysis and metric generation
 - **📊 Metric Catalog** - Interactive documentation with search and lineage
 - **🔍 Enhanced Error Handling** - Pre-validation and detailed error reporting
 - Join path configuration for complex data models
 - Window functions in measures  
 - Offset windows for cumulative metrics
-- Validation and testing framework
-- GitHub Action package
 
 ### Coming Soon:
+- **🔮 Auto-Inference** - Automatically detect dimensions and entities from schema
 - **📚 Built-in Metric Library** - Pre-built templates for common business metrics
 - **⚡ Performance Optimization** - Query hints and materialization recommendations
 - **🧪 Testing Framework** - Automated metric validation and regression testing
-- Auto-generated metric variants (WoW, MoM, YoY)
 - Direct BI tool integration (Tableau, Looker, PowerBI)
 - Change detection for incremental compilation
 
@@ -897,7 +983,3 @@ pytest tests/
 ## 📄 License
 
 Apache 2.0 - See [LICENSE](LICENSE) for details.
-
----
-
-**Built with learnings from multiple iterations to create a practical metrics layer solution.**

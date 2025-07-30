@@ -1,0 +1,68 @@
+version: 2
+
+# Example: Simple semantic model definition
+# This shows the most basic way to define a semantic model
+
+semantic_models:
+  - name: sales
+    description: "Daily sales transactions"
+    source: fct_sales  # References dbt model ref('fct_sales')
+    
+    # Define the primary key
+    entities:
+      - name: sale_id
+        type: primary
+        expr: sale_id
+    
+    # Define dimensions for grouping
+    dimensions:
+      - name: sale_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: sale_date
+        
+      - name: product_category
+        type: categorical
+        expr: product_category
+        
+      - name: store_region
+        type: categorical
+        expr: store_region
+    
+    # Define measures for aggregation
+    measures:
+      - name: sale_count
+        agg: count
+        expr: sale_id
+        agg_time_dimension: sale_date
+        
+      - name: total_revenue
+        agg: sum
+        expr: sale_amount
+        agg_time_dimension: sale_date
+        
+      - name: average_sale_amount
+        agg: avg
+        expr: sale_amount
+        agg_time_dimension: sale_date
+
+# Now define metrics that use the semantic model
+metrics:
+  - name: daily_sales
+    type: simple
+    description: "Total daily sales by region"
+    semantic_model: sales  # References the semantic model above
+    measure: total_revenue  # Uses the measure from the semantic model
+    dimensions:
+      - sale_date
+      - store_region
+      
+  - name: sales_by_category
+    type: simple
+    description: "Sales breakdown by product category"
+    semantic_model: sales
+    measure: total_revenue
+    dimensions:
+      - product_category
+      - sale_date
