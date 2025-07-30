@@ -1,0 +1,15 @@
+semantic_models:
+- description: Semantic model for fct_sales
+  dimensions:
+  - name: region
+    type: categorical
+  entities:
+  - expr: fct_sales_id
+    name: id
+    type: primary
+  measures:
+  - agg: sum
+    expr: amount
+    name: test_revenue_table_measure
+  model: ref('fct_sales')
+  name: sem_fct_sales

@@ -1,0 +1,23 @@
+version: 2
+
+metrics:
+  - name: contribution_margin_1_pc
+    label: CM1 %
+    description: 'CM1 as a percentage of Net Revenue'
+    type: ratio
+    numerator:
+      source: fct_contribution_margins
+      measure:
+        type: sum
+        column: cm1
+    denominator:
+      source: fct_unified_orders
+      measure:
+        type: sum
+        column: net_revenue_gbp
+    dimensions:
+      - name: date_day
+        type: time
+        grain: day
+      - name: channel
+        type: categorical

@@ -1304,6 +1304,14 @@ class BetterDBTCompiler:
                                 num_model['measures'].append(
                                     self._to_dbt_measure(metric['numerator']['measure'], num_measure_name)
                                 )
+                            
+                            # Also add dimensions from the metric to the semantic model
+                            if 'dimensions' in metric:
+                                existing_dim_names = {d.get('name', d) for d in num_model.get('dimensions', [])}
+                                for dim in metric['dimensions']:
+                                    dim_name = dim.get('name') if isinstance(dim, dict) else dim
+                                    if dim_name and dim_name not in existing_dim_names:
+                                        num_model['dimensions'].append(self._to_dbt_dimension(dim))
                         
                         # Process denominator
                         den_source = metric.get('denominator', {}).get('source')
@@ -1315,6 +1323,14 @@ class BetterDBTCompiler:
                                 den_model['measures'].append(
                                     self._to_dbt_measure(metric['denominator']['measure'], den_measure_name)
                                 )
+                            
+                            # Also add dimensions from the metric to the semantic model
+                            if 'dimensions' in metric:
+                                existing_dim_names = {d.get('name', d) for d in den_model.get('dimensions', [])}
+                                for dim in metric['dimensions']:
+                                    dim_name = dim.get('name') if isinstance(dim, dict) else dim
+                                    if dim_name and dim_name not in existing_dim_names:
+                                        den_model['dimensions'].append(self._to_dbt_dimension(dim))
             
     def _process_semantic_model_definition(self, sm_def: Dict[str, Any]):
         """Process an explicitly defined semantic model"""

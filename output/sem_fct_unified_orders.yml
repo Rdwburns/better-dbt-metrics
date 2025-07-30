@@ -1,0 +1,19 @@
+semantic_models:
+- description: Semantic model for fct_unified_orders
+  dimensions:
+  - name: date_day
+    type: time
+    type_params:
+      time_granularity: day
+  - name: channel
+    type: categorical
+  entities:
+  - expr: fct_unified_orders_id
+    name: id
+    type: primary
+  measures:
+  - agg: sum
+    expr: net_revenue_gbp
+    name: contribution_margin_1_pc_denominator
+  model: ref('fct_unified_orders')
+  name: sem_fct_unified_orders

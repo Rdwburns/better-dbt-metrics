@@ -23,7 +23,7 @@ metric_templates:
       measure:
         type: sum
         column: "{{ revenue_column }}_gbp"
-      filter: "{{ base_filter or 'date >= \'2020-01-01\'' }}"
+      filter: "{{ base_filter | default(\"date >= '2020-01-01'\") }}"
       dimensions: $ref(dims.revenue_dimensions)
       auto_variants:
         time_comparisons:
