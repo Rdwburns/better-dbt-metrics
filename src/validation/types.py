@@ -61,6 +61,26 @@ class ValidationResult:
         """Check if there are any errors"""
         return len(self.errors) > 0
     
+    def __str__(self) -> str:
+        """String representation of validation result"""
+        lines = []
+        
+        if self.errors:
+            lines.append(f"Found {len(self.errors)} error(s):")
+            for error in self.errors:
+                lines.append(f"  {error}")
+                
+        if self.warnings:
+            lines.append(f"Found {len(self.warnings)} warning(s):")
+            for warning in self.warnings:
+                lines.append(f"  {warning}")
+                
+        if self.info:
+            for info in self.info:
+                lines.append(info)
+                
+        return "\n".join(lines)
+    
     def print_summary(self):
         """Print a summary of validation results"""
         if self.errors:

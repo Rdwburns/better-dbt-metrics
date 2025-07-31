@@ -1,0 +1,177 @@
+version: 2
+
+# Example showing auto-inference capabilities in Better-DBT-Metrics
+# Auto-inference can automatically detect entities, dimensions, and measures from table schemas
+
+# 1. Basic auto-inference - infers everything automatically
+semantic_models:
+  - name: simple_orders
+    description: "Basic semantic model with full auto-inference"
+    source: fct_orders
+    auto_infer:
+      dimensions: true  # Enable dimension inference
+      exclude_columns: [_fivetran_synced, _dbt_updated_at]  # Skip ETL metadata columns
+
+# 2. Targeted auto-inference - specify which columns to use for time dimensions
+semantic_models:
+  - name: targeted_inference
+    description: "Semantic model with targeted time dimension inference"
+    source: fct_transactions
+    auto_infer:
+      dimensions: true
+      time_dimensions:
+        from_columns: [transaction_date, created_at, updated_at]  # Specific time columns
+      exclude_columns: [_row_hash, temp_calculation]
+    
+    # Manual additions are merged with inferred components
+    entities:
+      - name: store_id
+        type: foreign
+        expr: store_location_id  # Use different column expression
+    
+    dimensions:
+      - name: custom_category
+        type: categorical
+        expr: CASE WHEN amount > 100 THEN 'high' ELSE 'low' END
+
+# 3. Combining auto-inference with templates
+semantic_model_templates:
+  auto_enhanced_fact:
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: date_column
+        type: string
+        required: true
+    template:
+      source: "{{ table_name }}"
+      auto_infer:
+        dimensions: true
+        time_dimensions:
+          from_columns: ["{{ date_column }}"]
+      # Template can define base structure, inference adds more
+      entities:
+        - name: id
+          type: primary
+          expr: id
+
+semantic_models:
+  - name: sales_with_template
+    description: "Template-based model enhanced with auto-inference"
+    template: auto_enhanced_fact
+    parameters:
+      table_name: fct_sales
+      date_column: sale_date
+
+# 4. Metrics using auto-inferred components
+metrics:
+  - name: daily_order_volume
+    type: simple
+    description: "Daily order count using auto-inferred measure"
+    semantic_model: simple_orders
+    measure: fct_orders_quantity_sum  # Auto-inferred measure name
+    dimensions:
+      - order_date  # Auto-inferred time dimension
+      - fct_orders_status  # Auto-inferred categorical dimension
+  
+  - name: transaction_revenue
+    type: simple
+    description: "Transaction revenue with custom grouping"
+    semantic_model: targeted_inference
+    measure: fct_transactions_amount_sum  # Auto-inferred
+    dimensions:
+      - transaction_date  # From targeted inference
+      - custom_category   # Manual dimension
+  
+  - name: sales_growth
+    type: ratio
+    description: "Sales growth comparing periods"
+    numerator:
+      semantic_model: sales_with_template
+      measure: fct_sales_amount_sum  # Auto-inferred from template + inference
+    denominator:
+      semantic_model: sales_with_template
+      measure: fct_sales_amount_sum
+      # Add time offset for period comparison (future enhancement)
+    
+# 5. Advanced example: Multiple semantic models with different inference strategies
+semantic_models:
+  # Fact table with comprehensive inference
+  - name: comprehensive_orders
+    description: "Orders with full auto-inference capabilities"
+    source: fct_orders_detailed
+    auto_infer:
+      dimensions: true
+      time_dimensions:
+        from_columns: [order_date, shipped_date, delivered_date]
+      exclude_columns: [_etl_batch_id, _processed_at]
+    
+    # Additional manual definitions
+    entities:
+      - name: promotion_id
+        type: foreign
+        expr: applied_promotion_id
+    
+    dimensions:
+      - name: order_priority
+        type: categorical
+        expr: CASE 
+          WHEN delivery_days <= 2 THEN 'urgent'
+          WHEN delivery_days <= 7 THEN 'standard'
+          ELSE 'economy'
+        END
+      - name: order_size_bucket
+        type: categorical
+        expr: CASE 
+          WHEN total_items <= 3 THEN 'small'
+          WHEN total_items <= 10 THEN 'medium'
+          ELSE 'large'
+        END
+
+  # Dimension table with selective inference
+  - name: customer_profiles
+    description: "Customer dimension with selective inference"
+    source: dim_customers
+    auto_infer:
+      dimensions: true
+      exclude_columns: [internal_notes, _merge_key]
+    
+    # Override inferred primary key if needed
+    entities:
+      - name: customer_id
+        type: primary
+        expr: customer_uuid  # Use UUID instead of default ID
+
+# 6. Metrics leveraging comprehensive auto-inference
+metrics:
+  - name: order_analysis_by_priority
+    type: simple
+    description: "Order analysis with auto-inferred and custom dimensions"
+    semantic_model: comprehensive_orders
+    measure: fct_orders_detailed_amount_sum
+    dimensions:
+      - order_date
+      - order_priority     # Custom dimension
+      - order_size_bucket  # Custom dimension
+      - fct_orders_detailed_status  # Auto-inferred
+  
+  - name: customer_segmentation
+    type: simple
+    description: "Customer analysis using inferred dimensions"
+    semantic_model: customer_profiles
+    measure: dim_customers_value_sum  # Auto-inferred from customer LTV
+    dimensions:
+      - dim_customers_segment  # Auto-inferred categorical
+      - dim_customers_region   # Auto-inferred categorical
+      - signup_date           # Auto-inferred time dimension
+  
+  - name: shipping_performance
+    type: simple
+    description: "Shipping analysis with multiple time dimensions"
+    semantic_model: comprehensive_orders
+    measure: fct_orders_detailed_quantity_sum
+    dimensions:
+      - shipped_date    # Auto-inferred time dimension
+      - delivered_date  # Auto-inferred time dimension
+      - order_priority  # Custom dimension

@@ -1,0 +1,117 @@
+version: 2
+
+# Example showing semantic model templates in action
+
+# 1. Define the template
+semantic_model_templates:
+  transaction_fact:
+    description: "Standard template for transaction fact tables"
+    parameters:
+      - name: source_table
+        type: string
+        required: true
+        description: "The fact table name"
+      - name: date_field
+        type: string
+        required: true
+        description: "The transaction date field"
+      - name: amount_field
+        type: string
+        default: "amount"
+        description: "The amount field name"
+    template:
+      source: "{{ source_table }}"
+      entities:
+        - name: transaction_id
+          type: primary
+          expr: transaction_id
+        - name: customer_id
+          type: foreign
+          expr: customer_id
+      dimensions:
+        - name: transaction_date
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ date_field }}"
+        - name: transaction_week
+          type: time
+          type_params:
+            time_granularity: week
+          expr: "date_trunc('week', {{ date_field }})"
+        - name: transaction_month
+          type: time
+          type_params:
+            time_granularity: month
+          expr: "date_trunc('month', {{ date_field }})"
+      measures:
+        - name: transaction_count
+          agg: count
+          expr: transaction_id
+          agg_time_dimension: transaction_date
+        - name: total_amount
+          agg: sum
+          expr: "{{ amount_field }}"
+          agg_time_dimension: transaction_date
+        - name: avg_amount
+          agg: avg
+          expr: "{{ amount_field }}"
+          agg_time_dimension: transaction_date
+
+# 2. Use the template for multiple semantic models
+semantic_models:
+  - name: online_sales
+    description: "Online sales transactions"
+    template: transaction_fact
+    parameters:
+      source_table: fct_online_sales
+      date_field: sale_date
+      amount_field: sale_amount
+    # Add additional dimensions specific to online sales
+    dimensions:
+      - name: device_type
+        type: categorical
+        expr: device_type
+      - name: browser
+        type: categorical
+        expr: browser
+    
+  - name: pos_sales
+    description: "Point of sale transactions"
+    template: transaction_fact
+    parameters:
+      source_table: fct_pos_sales
+      date_field: transaction_date
+      amount_field: total_amount
+    # Add POS-specific dimensions
+    dimensions:
+      - name: store_id
+        type: categorical
+        expr: store_id
+      - name: register_id
+        type: categorical
+        expr: register_id
+
+# 3. Define metrics using the semantic models
+metrics:
+  - name: online_revenue
+    type: simple
+    semantic_model: online_sales
+    measure: total_amount
+    dimensions:
+      - transaction_date
+      - device_type
+    
+  - name: pos_revenue
+    type: simple
+    semantic_model: pos_sales
+    measure: total_amount
+    dimensions:
+      - transaction_date
+      - store_id
+    
+  - name: combined_revenue
+    type: derived
+    expression: online_revenue + pos_revenue
+    dimensions:
+      - transaction_date

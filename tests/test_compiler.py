@@ -109,12 +109,18 @@ metrics:
         with open(output_file, 'r') as f:
             output = yaml.safe_load(f)
             
-        # Verify ratio metric structure
-        metric = output['metrics'][0]
-        assert metric['type'] == 'ratio'
-        assert 'type_params' in metric
-        assert 'numerator' in metric['type_params']
-        assert 'denominator' in metric['type_params']
+        # Verify ratio metric structure - find the ratio metric by name
+        ratio_metric = None
+        for metric in output['metrics']:
+            if metric['name'] == 'refund_rate':
+                ratio_metric = metric
+                break
+        
+        assert ratio_metric is not None, "Ratio metric 'refund_rate' not found in output"
+        assert ratio_metric['type'] == 'ratio'
+        assert 'type_params' in ratio_metric
+        assert 'numerator' in ratio_metric['type_params']
+        assert 'denominator' in ratio_metric['type_params']
         
         # Check semantic models have both measures
         models = output['semantic_models']

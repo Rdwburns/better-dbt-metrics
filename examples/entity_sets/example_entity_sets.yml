@@ -1,0 +1,218 @@
+version: 2
+
+# Example showing entity sets for Better-DBT-Metrics
+# Entity sets allow you to define reusable groups of entities that can be applied to multiple semantic models
+
+# 1. Define global entities that can be referenced by entity sets
+entities:
+  - name: customer_id
+    type: foreign
+    expr: customer_id
+    column: customer_id
+    description: "Customer identifier"
+    
+  - name: product_id
+    type: foreign
+    expr: product_id
+    column: product_id
+    description: "Product identifier"
+    
+  - name: order_id
+    type: primary
+    expr: order_id
+    column: order_id
+    description: "Order identifier"
+    relationships:
+      - type: many_to_one
+        to_entity: customer_id
+        foreign_key: customer_id
+      - type: one_to_many
+        to_entity: order_item
+        foreign_key: order_id
+        
+  - name: order_item_id
+    type: primary
+    expr: order_item_id
+    column: order_item_id
+    description: "Order item identifier"
+    relationships:
+      - type: many_to_one
+        to_entity: order_id
+        foreign_key: order_id
+      - type: many_to_one
+        to_entity: product_id
+        foreign_key: product_id
+
+# 2. Define entity sets - reusable groups of entities
+entity_sets:
+  # Simple entity set with inline primary entity
+  - name: ecommerce_transaction
+    description: "Standard entities for ecommerce transaction tables"
+    primary_entity:
+      name: transaction_id
+      type: primary
+      expr: transaction_id
+    foreign_entities:
+      - customer_id
+      - product_id
+  
+  # Entity set using global entity references
+  - name: order_analysis
+    description: "Entities for order-based analysis"
+    primary_entity: order_id  # References global entity
+    foreign_entities:
+      - customer_id
+      - product_id
+  
+  # Complex entity set with includes and relationships
+  - name: customer_journey
+    description: "Complete customer journey entities"
+    primary_entity: customer_id
+    includes:
+      - entity: order_id
+        join_type: left
+        description: "Customer orders"
+      - entity: order_item_id
+        through: order_id
+        join_type: left
+        description: "Order line items through orders"
+
+# 3. Use entity sets in semantic models
+semantic_models:
+  # Semantic model using simple entity set
+  - name: transactions
+    description: "Transaction fact table"
+    source: fct_transactions
+    entity_set: ecommerce_transaction  # Applies all entities from the set
+    
+    dimensions:
+      - name: transaction_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: transaction_date
+      - name: transaction_amount_bucket
+        type: categorical
+        expr: case 
+          when transaction_amount < 50 then 'low'
+          when transaction_amount < 200 then 'medium'
+          else 'high'
+        end
+    
+    measures:
+      - name: transaction_count
+        agg: count
+        expr: transaction_id
+        agg_time_dimension: transaction_date
+      - name: total_revenue
+        agg: sum
+        expr: transaction_amount
+        agg_time_dimension: transaction_date
+      - name: avg_transaction_value
+        agg: avg
+        expr: transaction_amount
+        agg_time_dimension: transaction_date
+
+  # Semantic model using entity set with additional entities
+  - name: orders
+    description: "Order fact table with additional context"
+    source: fct_orders
+    entity_set: order_analysis  # Base entity set
+    
+    # Additional entities beyond the entity set
+    entities:
+      - name: store_id
+        type: foreign
+        expr: store_id
+      - name: sales_rep_id
+        type: foreign
+        expr: sales_rep_id
+    
+    dimensions:
+      - name: order_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: order_date
+      - name: order_status
+        type: categorical
+        expr: order_status
+      - name: sales_channel
+        type: categorical
+        expr: sales_channel
+    
+    measures:
+      - name: order_count
+        agg: count
+        expr: order_id
+        agg_time_dimension: order_date
+      - name: gross_revenue
+        agg: sum
+        expr: order_amount
+        agg_time_dimension: order_date
+
+  # Semantic model using complex entity set with includes
+  - name: customer_analytics
+    description: "Customer analytics with full journey data"
+    source: dim_customers
+    entity_set: customer_journey  # Includes customer, order, and order_item entities
+    
+    dimensions:
+      - name: customer_segment
+        type: categorical
+        expr: customer_segment
+      - name: signup_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: signup_date
+      - name: customer_lifetime_stage
+        type: categorical
+        expr: case
+          when days_since_first_order < 30 then 'new'
+          when days_since_first_order < 365 then 'active'
+          else 'mature'
+        end
+    
+    measures:
+      - name: customer_count
+        agg: count_distinct
+        expr: customer_id
+      - name: total_lifetime_value
+        agg: sum
+        expr: lifetime_value
+      - name: avg_lifetime_value
+        agg: avg
+        expr: lifetime_value
+
+# 4. Define metrics using the semantic models
+metrics:
+  - name: daily_transaction_revenue
+    type: simple
+    description: "Daily revenue from transactions"
+    semantic_model: transactions
+    measure: total_revenue
+    dimensions:
+      - transaction_date
+      - transaction_amount_bucket
+    
+  - name: order_conversion_rate
+    type: ratio
+    description: "Percentage of customers who placed orders"
+    numerator:
+      semantic_model: orders
+      measure: order_count
+    denominator:
+      semantic_model: customer_analytics
+      measure: customer_count
+    dimensions:
+      - customer_segment
+    
+  - name: customer_lifetime_value
+    type: simple
+    description: "Average customer lifetime value by segment"
+    semantic_model: customer_analytics
+    measure: avg_lifetime_value
+    dimensions:
+      - customer_segment
+      - customer_lifetime_stage

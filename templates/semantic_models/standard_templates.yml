@@ -1,0 +1,475 @@
+version: 2
+
+# Standard Semantic Model Templates for Better-DBT-Metrics
+# These templates provide pre-built patterns for common table types
+
+semantic_model_templates:
+  # Standard fact table with time dimensions and common measures
+  standard_fact_table:
+    description: "Template for typical fact tables with time dimensions and numeric measures"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+        description: "Name of the source table (e.g., fct_orders)"
+      - name: date_column
+        type: string
+        required: true
+        description: "Primary date column for time dimensions (e.g., order_date)"
+      - name: primary_key
+        type: string
+        default: "id"
+        description: "Primary key column name"
+      - name: grain
+        type: string
+        default: "row"
+        description: "Grain of the fact table (row, day, etc.)"
+    template:
+      source: "{{ table_name }}"
+      description: "Fact table semantic model for {{ table_name }}"
+      
+      entities:
+        - name: "{{ primary_key }}"
+          type: primary
+          expr: "{{ primary_key }}"
+      
+      dimensions:
+        - name: "{{ date_column }}"
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ date_column }}"
+        - name: "{{ date_column }}_week"
+          type: time
+          type_params:
+            time_granularity: week
+          expr: "date_trunc('week', {{ date_column }})"
+        - name: "{{ date_column }}_month"
+          type: time
+          type_params:
+            time_granularity: month
+          expr: "date_trunc('month', {{ date_column }})"
+        - name: "{{ date_column }}_quarter"
+          type: time
+          type_params:
+            time_granularity: quarter
+          expr: "date_trunc('quarter', {{ date_column }})"
+        - name: "{{ date_column }}_year"
+          type: time
+          type_params:
+            time_granularity: year
+          expr: "date_trunc('year', {{ date_column }})"
+      
+      # Auto-infer additional dimensions and measures
+      auto_infer:
+        dimensions: true
+        exclude_columns: [_fivetran_synced, _dbt_updated_at, _loaded_at]
+
+  # E-commerce order fact table
+  ecommerce_orders:
+    description: "Template for e-commerce order fact tables"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: order_date_column
+        type: string
+        default: "order_date"
+      - name: amount_column
+        type: string
+        default: "order_amount"
+      - name: quantity_column
+        type: string
+        default: "quantity"
+    template:
+      source: "{{ table_name }}"
+      description: "E-commerce orders semantic model for {{ table_name }}"
+      
+      entities:
+        - name: order_id
+          type: primary
+          expr: order_id
+        - name: customer_id
+          type: foreign
+          expr: customer_id
+      
+      dimensions:
+        - name: "{{ order_date_column }}"
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ order_date_column }}"
+        - name: order_status
+          type: categorical
+          expr: order_status
+      
+      measures:
+        - name: order_count
+          agg: count
+          expr: order_id
+          agg_time_dimension: "{{ order_date_column }}"
+        - name: total_amount
+          agg: sum
+          expr: "{{ amount_column }}"
+          agg_time_dimension: "{{ order_date_column }}"
+        - name: total_quantity
+          agg: sum
+          expr: "{{ quantity_column }}"
+          agg_time_dimension: "{{ order_date_column }}"
+        - name: avg_order_value
+          agg: avg
+          expr: "{{ amount_column }}"
+          agg_time_dimension: "{{ order_date_column }}"
+
+  # Customer dimension table
+  customer_dimension:
+    description: "Template for customer dimension tables"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: customer_key
+        type: string
+        default: "customer_id"
+      - name: signup_date_column
+        type: string
+        default: "created_date"
+    template:
+      source: "{{ table_name }}"
+      description: "Customer dimension semantic model for {{ table_name }}"
+      
+      entities:
+        - name: "{{ customer_key }}"
+          type: primary
+          expr: "{{ customer_key }}"
+      
+      dimensions:
+        - name: "{{ signup_date_column }}"
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ signup_date_column }}"
+        - name: customer_segment
+          type: categorical
+          expr: customer_segment
+        - name: customer_status
+          type: categorical
+          expr: customer_status
+        - name: acquisition_channel
+          type: categorical
+          expr: acquisition_channel
+      
+      # Auto-infer additional categorical dimensions
+      auto_infer:
+        dimensions: true
+        exclude_columns: [internal_notes, _fivetran_synced, _dbt_updated_at]
+
+  # Product dimension table
+  product_dimension:
+    description: "Template for product dimension tables"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: product_key
+        type: string
+        default: "product_id"
+    template:
+      source: "{{ table_name }}"
+      description: "Product dimension semantic model for {{ table_name }}"
+      
+      entities:
+        - name: "{{ product_key }}"
+          type: primary
+          expr: "{{ product_key }}"
+      
+      dimensions:
+        - name: product_category
+          type: categorical
+          expr: product_category
+        - name: product_subcategory
+          type: categorical
+          expr: product_subcategory
+        - name: brand
+          type: categorical
+          expr: brand
+        - name: product_status
+          type: categorical
+          expr: product_status
+      
+      measures:
+        - name: list_price_avg
+          agg: avg
+          expr: list_price
+        - name: cost_avg
+          agg: avg
+          expr: cost
+      
+      auto_infer:
+        dimensions: true
+        exclude_columns: [internal_sku, _fivetran_synced, _dbt_updated_at]
+
+  # Event tracking table (for product analytics)
+  event_tracking:
+    description: "Template for event tracking tables (product analytics)"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: event_timestamp_column
+        type: string
+        default: "event_timestamp"
+      - name: user_key
+        type: string
+        default: "user_id"
+    template:
+      source: "{{ table_name }}"
+      description: "Event tracking semantic model for {{ table_name }}"
+      
+      entities:
+        - name: event_id
+          type: primary
+          expr: event_id
+        - name: "{{ user_key }}"
+          type: foreign
+          expr: "{{ user_key }}"
+        - name: session_id
+          type: foreign
+          expr: session_id
+      
+      dimensions:
+        - name: "{{ event_timestamp_column }}"
+          type: time
+          type_params:
+            time_granularity: second
+          expr: "{{ event_timestamp_column }}"
+        - name: event_date
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "date({{ event_timestamp_column }})"
+        - name: event_hour
+          type: time
+          type_params:
+            time_granularity: hour
+          expr: "date_trunc('hour', {{ event_timestamp_column }})"
+        - name: event_name
+          type: categorical
+          expr: event_name
+        - name: event_category
+          type: categorical
+          expr: event_category
+        - name: platform
+          type: categorical
+          expr: platform
+        - name: device_type
+          type: categorical
+          expr: device_type
+      
+      measures:
+        - name: event_count
+          agg: count
+          expr: event_id
+          agg_time_dimension: "{{ event_timestamp_column }}"
+        - name: unique_users
+          agg: count_distinct
+          expr: "{{ user_key }}"
+          agg_time_dimension: event_date
+        - name: unique_sessions
+          agg: count_distinct
+          expr: session_id
+          agg_time_dimension: event_date
+
+  # Financial transactions template
+  financial_transactions:
+    description: "Template for financial transaction tables"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: transaction_date_column
+        type: string
+        default: "transaction_date"
+      - name: amount_column
+        type: string
+        default: "amount"
+    template:
+      source: "{{ table_name }}"
+      description: "Financial transactions semantic model for {{ table_name }}"
+      
+      entities:
+        - name: transaction_id
+          type: primary
+          expr: transaction_id
+        - name: account_id
+          type: foreign
+          expr: account_id
+      
+      dimensions:
+        - name: "{{ transaction_date_column }}"
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ transaction_date_column }}"
+        - name: transaction_type
+          type: categorical
+          expr: transaction_type
+        - name: transaction_status
+          type: categorical
+          expr: transaction_status
+        - name: payment_method
+          type: categorical
+          expr: payment_method
+        - name: currency
+          type: categorical
+          expr: currency
+      
+      measures:
+        - name: transaction_count
+          agg: count
+          expr: transaction_id
+          agg_time_dimension: "{{ transaction_date_column }}"
+        - name: total_amount
+          agg: sum
+          expr: "{{ amount_column }}"
+          agg_time_dimension: "{{ transaction_date_column }}"
+        - name: avg_transaction_amount
+          agg: avg
+          expr: "{{ amount_column }}"
+          agg_time_dimension: "{{ transaction_date_column }}"
+
+  # Marketing attribution template
+  marketing_attribution:
+    description: "Template for marketing attribution fact tables"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: attribution_date_column
+        type: string
+        default: "attribution_date"
+      - name: spend_column
+        type: string
+        default: "spend"
+      - name: impressions_column
+        type: string
+        default: "impressions"
+      - name: clicks_column
+        type: string
+        default: "clicks"
+    template:
+      source: "{{ table_name }}"
+      description: "Marketing attribution semantic model for {{ table_name }}"
+      
+      entities:
+        - name: attribution_id
+          type: primary
+          expr: attribution_id
+        - name: campaign_id
+          type: foreign
+          expr: campaign_id
+        - name: customer_id
+          type: foreign
+          expr: customer_id
+      
+      dimensions:
+        - name: "{{ attribution_date_column }}"
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ attribution_date_column }}"
+        - name: channel
+          type: categorical
+          expr: channel
+        - name: campaign_type
+          type: categorical
+          expr: campaign_type
+        - name: attribution_model
+          type: categorical
+          expr: attribution_model
+      
+      measures:
+        - name: total_spend
+          agg: sum
+          expr: "{{ spend_column }}"
+          agg_time_dimension: "{{ attribution_date_column }}"
+        - name: total_impressions
+          agg: sum
+          expr: "{{ impressions_column }}"
+          agg_time_dimension: "{{ attribution_date_column }}"
+        - name: total_clicks
+          agg: sum
+          expr: "{{ clicks_column }}"
+          agg_time_dimension: "{{ attribution_date_column }}"
+        - name: cpm
+          agg: avg
+          expr: "({{ spend_column }} / {{ impressions_column }}) * 1000"
+          agg_time_dimension: "{{ attribution_date_column }}"
+        - name: cpc
+          agg: avg
+          expr: "{{ spend_column }} / {{ clicks_column }}"
+          agg_time_dimension: "{{ attribution_date_column }}"
+        - name: ctr
+          agg: avg
+          expr: "{{ clicks_column }} / {{ impressions_column }}"
+          agg_time_dimension: "{{ attribution_date_column }}"
+
+# Entity sets for common patterns
+entity_sets:
+  ecommerce_fact:
+    description: "Standard entities for e-commerce fact tables"
+    entities:
+      - name: id
+        type: primary
+        expr: id
+      - name: customer_id
+        type: foreign
+        expr: customer_id
+      - name: product_id
+        type: foreign
+        expr: product_id
+      - name: order_id
+        type: foreign
+        expr: order_id
+
+  marketing_fact:
+    description: "Standard entities for marketing fact tables"
+    entities:
+      - name: id
+        type: primary
+        expr: id
+      - name: campaign_id
+        type: foreign
+        expr: campaign_id
+      - name: customer_id
+        type: foreign
+        expr: customer_id
+      - name: channel_id
+        type: foreign
+        expr: channel_id
+
+  financial_fact:
+    description: "Standard entities for financial fact tables"
+    entities:
+      - name: transaction_id
+        type: primary
+        expr: transaction_id
+      - name: account_id
+        type: foreign
+        expr: account_id
+      - name: customer_id
+        type: foreign
+        expr: customer_id
+
+  user_behavior_fact:
+    description: "Standard entities for user behavior fact tables"
+    entities:
+      - name: event_id
+        type: primary
+        expr: event_id
+      - name: user_id
+        type: foreign
+        expr: user_id
+      - name: session_id
+        type: foreign
+        expr: session_id

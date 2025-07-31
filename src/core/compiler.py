@@ -12,6 +12,7 @@ from copy import deepcopy
 from core.parser import BetterDBTParser
 from features.templates import TemplateLibrary
 from features.dimension_groups import DimensionGroupManager
+from features.auto_inference import AutoInferenceEngine, InferenceConfig, ColumnInfo
 from core.config_loader import ConfigLoader, BDMConfig
 
 
@@ -56,6 +57,17 @@ class BetterDBTCompiler:
         )
         self.templates = TemplateLibrary(config.template_dirs)
         self.dimension_groups = DimensionGroupManager()
+        
+        # Initialize auto-inference engine
+        inference_config = InferenceConfig()
+        # Apply any inference settings from BDM config
+        if hasattr(self.bdm_config, 'auto_inference'):
+            # Update inference config from BDM config if available
+            inference_settings = getattr(self.bdm_config, 'auto_inference', {})
+            if 'enabled' in inference_settings:
+                inference_config.enabled = inference_settings['enabled']
+            # Additional inference config can be added here
+        self.auto_inference = AutoInferenceEngine(inference_config)
         
         # Track compilation state
         self.compiled_metrics: List[Dict[str, Any]] = []
@@ -136,6 +148,17 @@ class BetterDBTCompiler:
                     'error': str(e)
                 })
                 
+        # Check if there were any errors
+        if results['errors'] and self.config.validate:
+            # Only raise errors if validation is enabled
+            first_error = results['errors'][0]
+            error_msg = first_error['error']
+            # If the original error message contains "Required parameter", re-raise as ValueError
+            if "Required parameter" in error_msg:
+                raise ValueError(error_msg)
+            else:
+                raise RuntimeError(f"Compilation failed: {error_msg}")
+        
         # Generate output
         output_data = self._generate_output()
         results['metrics_compiled'] = len(output_data.get('metrics', []))
@@ -181,7 +204,7 @@ class BetterDBTCompiler:
         # Register semantic model templates
         if 'semantic_model_templates' in parsed_data:
             for name, template_def in parsed_data['semantic_model_templates'].items():
-                self.templates.engine.register_template(name, template_def)
+                self.templates.semantic_model_engine.register_template(name, template_def)
             
         # Register dimension groups from this file
         if 'dimension_groups' in parsed_data:
@@ -612,7 +635,7 @@ class BetterDBTCompiler:
                    'filter', 'meta', 'config', 'validation', 'auto_variants', 
                    'window', 'grain_to_date', 'base_measure', 'conversion_measure', 
                    'entity', 'dimensions', 'fill_nulls_with', 'time_spine', 
-                   'offsets', 'window_type', 'offset_pattern']:
+                   'offsets', 'window_type', 'offset_pattern', 'join_paths']:
             if key in metric_def:
                 compiled[key] = deepcopy(metric_def[key])
                 
@@ -735,20 +758,37 @@ class BetterDBTCompiler:
         try:
             # Check if template exists in registered templates
             # Note: We're reusing the same template system for semantic models
-            expanded = self.templates.expand(template_name, params)
+            expanded = self.templates.expand(template_name, params, template_type='semantic_model')
             if self.config.debug:
                 print(f"[DEBUG] Semantic model template expanded successfully")
                 print(f"[DEBUG] Expanded keys: {list(expanded.keys())}")
+        except ValueError as e:
+            # Re-raise ValueError for required parameter errors
+            if "Required parameter" in str(e):
+                raise e
+            if self.config.debug:
+                print(f"[DEBUG] Semantic model template expansion failed: {e}")
+            # Other ValueErrors, return as-is
+            return sm_def
         except Exception as e:
             if self.config.debug:
                 print(f"[DEBUG] Semantic model template expansion failed: {e}")
             # Template might not be found, return as-is
             return sm_def
         
-        # Merge with semantic model definition (sm fields override template)
+        # Merge with semantic model definition
         for key, value in sm_def.items():
             if key not in ['template', 'parameters', 'params']:
-                expanded[key] = value
+                # For lists, merge instead of replace
+                if key in ['dimensions', 'measures', 'entities'] and isinstance(value, list):
+                    if key in expanded and isinstance(expanded[key], list):
+                        # Merge lists - template items first, then additional items
+                        expanded[key] = expanded[key] + value
+                    else:
+                        expanded[key] = value
+                else:
+                    # For non-list fields, sm fields override template
+                    expanded[key] = value
                 
         return expanded
         
@@ -817,6 +857,147 @@ class BetterDBTCompiler:
                     expanded.extend(self._expand_dimensions([d]))
                     
         return expanded
+    
+    def _apply_auto_inference(self, sm_def: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply auto-inference to a semantic model definition"""
+        auto_infer_config = sm_def.get('auto_infer', {})
+        
+        if not isinstance(auto_infer_config, dict):
+            if self.config.debug:
+                print(f"[DEBUG] Invalid auto_infer config: {auto_infer_config}")
+            return sm_def
+        
+        # For now, we'll simulate schema inference since we don't have direct DB access
+        # In a real implementation, this would query the database schema
+        table_name = sm_def.get('source', sm_def.get('name', 'unknown'))
+        
+        if self.config.debug:
+            print(f"[DEBUG] Applying auto-inference to semantic model: {sm_def.get('name')}")
+            print(f"[DEBUG] Auto-infer config: {auto_infer_config}")
+        
+        # Create mock schema for demonstration - in real implementation, this would come from DB
+        # For now, we'll infer from existing dimensions if present, or create basic patterns
+        mock_columns = self._create_mock_schema_for_inference(sm_def, auto_infer_config)
+        
+        if mock_columns:
+            # Apply auto-inference
+            inferred_model = self.auto_inference.infer_semantic_model(
+                table_name, 
+                mock_columns, 
+                auto_infer_config
+            )
+            
+            # Merge inferred components with existing definition
+            sm_def = self._merge_inferred_components(sm_def, inferred_model)
+            
+            if self.config.debug:
+                print(f"[DEBUG] Auto-inference applied to {sm_def.get('name')}")
+                if inferred_model.get('entities'):
+                    print(f"[DEBUG] Inferred entities: {[e['name'] for e in inferred_model['entities']]}")
+                if inferred_model.get('dimensions'):
+                    print(f"[DEBUG] Inferred dimensions: {[d['name'] for d in inferred_model['dimensions']]}")
+                if inferred_model.get('measures'):
+                    print(f"[DEBUG] Inferred measures: {[m['name'] for m in inferred_model['measures']]}")
+        
+        return sm_def
+    
+    def _create_mock_schema_for_inference(self, sm_def: Dict[str, Any], auto_infer_config: Dict[str, Any]) -> List[ColumnInfo]:
+        """Create mock schema for auto-inference demonstration"""
+        # In a real implementation, this would query the database
+        # For now, create some example columns based on common patterns
+        
+        table_name = sm_def.get('source', sm_def.get('name', 'table'))
+        columns = []
+        
+        # Add primary key
+        columns.append(ColumnInfo(
+            name=f"{table_name}_id",
+            data_type="bigint",
+            is_primary_key=True,
+            is_nullable=False
+        ))
+        
+        # Add common dimension columns
+        if auto_infer_config.get('dimensions', True):
+            # Time dimensions
+            time_columns = auto_infer_config.get('time_dimensions', {}).get('from_columns', [])
+            if not time_columns:
+                # Default time columns
+                time_columns = ['created_at', 'updated_at']
+            
+            for col_name in time_columns:
+                columns.append(ColumnInfo(
+                    name=col_name,
+                    data_type="timestamp",
+                    is_nullable=True
+                ))
+            
+            # Categorical dimensions
+            cat_columns = ['status', 'type', 'category']
+            for col_name in cat_columns:
+                columns.append(ColumnInfo(
+                    name=f"{table_name}_{col_name}",
+                    data_type="varchar(50)",
+                    is_nullable=True,
+                    cardinality=10  # Low cardinality for categorical
+                ))
+        
+        # Add measures
+        measure_columns = ['amount', 'quantity', 'value']
+        for col_name in measure_columns:
+            columns.append(ColumnInfo(
+                name=f"{table_name}_{col_name}",
+                data_type="decimal(10,2)",
+                is_nullable=True
+            ))
+        
+        # Exclude specified columns
+        exclude_columns = auto_infer_config.get('exclude_columns', [])
+        columns = [col for col in columns if col.name not in exclude_columns]
+        
+        return columns
+    
+    def _merge_inferred_components(self, sm_def: Dict[str, Any], inferred_model: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge inferred components with existing semantic model definition"""
+        result = deepcopy(sm_def)
+        
+        # Merge entities
+        if 'entities' in inferred_model and inferred_model['entities']:
+            existing_entities = result.get('entities', [])
+            existing_entity_names = {e.get('name') for e in existing_entities if isinstance(e, dict)}
+            
+            for inferred_entity in inferred_model['entities']:
+                if inferred_entity.get('name') not in existing_entity_names:
+                    existing_entities.append(inferred_entity)
+            
+            result['entities'] = existing_entities
+        
+        # Merge dimensions
+        if 'dimensions' in inferred_model and inferred_model['dimensions']:
+            existing_dimensions = result.get('dimensions', [])
+            existing_dim_names = {d.get('name') for d in existing_dimensions if isinstance(d, dict)}
+            
+            for inferred_dim in inferred_model['dimensions']:
+                if inferred_dim.get('name') not in existing_dim_names:
+                    existing_dimensions.append(inferred_dim)
+            
+            result['dimensions'] = existing_dimensions
+        
+        # Merge measures
+        if 'measures' in inferred_model and inferred_model['measures']:
+            existing_measures = result.get('measures', [])
+            existing_measure_names = {m.get('name') for m in existing_measures if isinstance(m, dict)}
+            
+            for inferred_measure in inferred_model['measures']:
+                if inferred_measure.get('name') not in existing_measure_names:
+                    existing_measures.append(inferred_measure)
+            
+            result['measures'] = existing_measures
+        
+        # Remove the auto_infer config from final output
+        result.pop('auto_infer', None)
+        
+        return result
         
     def _process_metric_time_dimensions(self, dimensions: List[Any]) -> List[Any]:
         """Process metric_time dimensions and expand them if needed"""
@@ -965,6 +1146,14 @@ class BetterDBTCompiler:
                     # Register with alias prefix
                     full_name = f"{alias}.{name}"
                     self.templates.engine.register_template(full_name, template_def)
+                    
+            if 'semantic_model_templates' in imported_data:
+                for name, template_def in imported_data['semantic_model_templates'].items():
+                    # Register with alias prefix
+                    full_name = f"{alias}.{name}"
+                    self.templates.semantic_model_engine.register_template(full_name, template_def)
+                    # Also register without alias for simple references
+                    self.templates.semantic_model_engine.register_template(name, template_def)
                     
     def _resolve_references_in_group(self, group_def: Dict[str, Any]) -> Dict[str, Any]:
         """Resolve any $ref references in a dimension group definition"""
@@ -1453,6 +1642,10 @@ class BetterDBTCompiler:
         if 'template' in sm_def:
             sm_def = self._expand_semantic_model_template(sm_def)
         
+        # Apply auto-inference if enabled and requested
+        if 'auto_infer' in sm_def and self.auto_inference.config.enabled:
+            sm_def = self._apply_auto_inference(sm_def)
+        
         # Determine the model reference
         if 'model' in sm_def:
             model_ref = sm_def['model']
@@ -1668,7 +1861,7 @@ class BetterDBTCompiler:
                         entities.append(entity_dict)
                         primary_entities.append(entity_name)
                         
-                        # Add related entities through relationships
+                        # Add related entities through relationships FROM this entity
                         if 'relationships' in entity_def:
                             for rel in entity_def['relationships']:
                                 related_entity = rel['to_entity']
@@ -1680,6 +1873,21 @@ class BetterDBTCompiler:
                                         'type': 'foreign',
                                         'expr': rel.get('foreign_key', f"{related_entity}_id")
                                     })
+                        
+                        # Also look for relationships FROM other entities TO this entity
+                        for other_entity_name, other_entity_def in self.entities.items():
+                            if other_entity_name != entity_name and 'relationships' in other_entity_def:
+                                for rel in other_entity_def['relationships']:
+                                    if rel['to_entity'] == entity_name:
+                                        # Found a relationship pointing to our primary entity
+                                        foreign_key = rel.get('foreign_key', f"{entity_name}_id")
+                                        if foreign_key not in entity_names:
+                                            entity_names.add(foreign_key)
+                                            entities.append({
+                                                'name': foreign_key,
+                                                'type': 'foreign',
+                                                'expr': foreign_key
+                                            })
                 else:
                     # Entity not pre-defined, use default behavior
                     if entity_name not in entity_names:
@@ -2278,7 +2486,8 @@ class BetterDBTCompiler:
             'numerator': metric.get('numerator'),
             'denominator': metric.get('denominator'),
             'expression': metric.get('expression'),
-            'formula': metric.get('formula')
+            'formula': metric.get('formula'),
+            'comparison': metric.get('comparison')  # For time comparison variants
         }
         
         # Remove None values and sort for consistency

@@ -147,7 +147,9 @@ class TemplateEngine:
             'number': (int, float),
             'boolean': bool,
             'array': list,
-            'object': dict
+            'list': list,  # Support both 'array' and 'list'
+            'object': dict,
+            'dict': dict   # Support both 'object' and 'dict'
         }
         
         if param_type in type_map:
@@ -221,6 +223,7 @@ class TemplateLibrary:
     def __init__(self, template_dirs: List[str]):
         self.template_dirs = template_dirs
         self.engine = TemplateEngine()
+        self.semantic_model_engine = TemplateEngine()  # Separate engine for semantic model templates
         self._loaded = False
         
     def load_templates(self):
@@ -251,24 +254,35 @@ class TemplateLibrary:
                 for name, template_def in data['metric_templates'].items():
                     self.engine.register_template(name, template_def)
                     
-    def expand(self, template_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+            # Register semantic model templates
+            if 'semantic_model_templates' in data:
+                for name, template_def in data['semantic_model_templates'].items():
+                    self.semantic_model_engine.register_template(name, template_def)
+                    
+    def expand(self, template_name: str, params: Dict[str, Any], template_type: str = 'metric') -> Dict[str, Any]:
         """Expand a template from the library"""
         self.load_templates()  # Ensure loaded
+        if template_type == 'semantic_model':
+            return self.semantic_model_engine.expand_template(template_name, params)
         return self.engine.expand_template(template_name, params)
         
-    def list_templates(self) -> List[str]:
+    def list_templates(self, template_type: str = 'metric') -> List[str]:
         """List all available templates"""
         self.load_templates()
+        if template_type == 'semantic_model':
+            return list(self.semantic_model_engine.templates.keys())
         return list(self.engine.templates.keys())
         
-    def get_template_info(self, template_name: str) -> Dict[str, Any]:
+    def get_template_info(self, template_name: str, template_type: str = 'metric') -> Dict[str, Any]:
         """Get information about a template"""
         self.load_templates()
         
-        if template_name not in self.engine.templates:
+        engine = self.semantic_model_engine if template_type == 'semantic_model' else self.engine
+        
+        if template_name not in engine.templates:
             raise ValueError(f"Template '{template_name}' not found")
             
-        template = self.engine.templates[template_name]
+        template = engine.templates[template_name]
         
         return {
             'name': template.name,

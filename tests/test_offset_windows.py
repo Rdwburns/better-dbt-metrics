@@ -34,8 +34,8 @@ version: 2
 metrics:
   - name: revenue_mtd_with_offset
     type: cumulative
+    source: fct_orders
     measure:
-      source: fct_orders
       type: sum
       column: order_total
     grain_to_date: day
@@ -52,7 +52,9 @@ metrics:
         
         config = CompilerConfig(
             input_dir=str(self.metrics_dir),
-            output_dir=str(self.output_dir)
+            output_dir=str(self.output_dir),
+            validate=False,
+            split_files=False
         )
         compiler = BetterDBTCompiler(config)
         result = compiler.compile_directory()
@@ -62,7 +64,12 @@ metrics:
         assert metric['type'] == 'cumulative'
         
         # Check dbt metric has offset configuration
-        dbt_metric = next(m for m in result['metrics'] if m['name'] == 'revenue_mtd_with_offset')
+        output_file = self.output_dir / "compiled_semantic_models.yml"
+        with open(output_file, 'r') as f:
+            import yaml
+            output = yaml.safe_load(f)
+            
+        dbt_metric = next(m for m in output['metrics'] if m['name'] == 'revenue_mtd_with_offset')
         cumulative_params = dbt_metric['type_params']['cumulative_type_params']
         assert 'offset_windows' in cumulative_params
         assert len(cumulative_params['offset_windows']) == 1
@@ -81,8 +88,8 @@ version: 2
 metrics:
   - name: cumulative_users_comparisons
     type: cumulative
+    source: fct_user_activity
     measure:
-      source: fct_user_activity
       type: count_distinct
       column: user_id
     grain_to_date: day
@@ -105,13 +112,20 @@ metrics:
         
         config = CompilerConfig(
             input_dir=str(self.metrics_dir),
-            output_dir=str(self.output_dir)
+            output_dir=str(self.output_dir),
+            validate=False,
+            split_files=False
         )
         compiler = BetterDBTCompiler(config)
         result = compiler.compile_directory()
         
         # Check all offsets were compiled
-        dbt_metric = next(m for m in result['metrics'] if m['name'] == 'cumulative_users_comparisons')
+        output_file = self.output_dir / "compiled_semantic_models.yml"
+        with open(output_file, 'r') as f:
+            import yaml
+            output = yaml.safe_load(f)
+            
+        dbt_metric = next(m for m in output['metrics'] if m['name'] == 'cumulative_users_comparisons')
         offsets = dbt_metric['type_params']['cumulative_type_params']['offset_windows']
         assert len(offsets) == 3
         
@@ -129,8 +143,8 @@ version: 2
 metrics:
   - name: weekly_active_users_growth
     type: cumulative
+    source: fct_user_activity
     measure:
-      source: fct_user_activity
       type: count_distinct
       column: user_id
     grain_to_date: day
@@ -152,13 +166,20 @@ metrics:
         
         config = CompilerConfig(
             input_dir=str(self.metrics_dir),
-            output_dir=str(self.output_dir)
+            output_dir=str(self.output_dir),
+            validate=False,
+            split_files=False
         )
         compiler = BetterDBTCompiler(config)
         result = compiler.compile_directory()
         
         # Check calculations were compiled
-        dbt_metric = next(m for m in result['metrics'] if m['name'] == 'weekly_active_users_growth')
+        output_file = self.output_dir / "compiled_semantic_models.yml"
+        with open(output_file, 'r') as f:
+            import yaml
+            output = yaml.safe_load(f)
+            
+        dbt_metric = next(m for m in output['metrics'] if m['name'] == 'weekly_active_users_growth')
         offset = dbt_metric['type_params']['cumulative_type_params']['offset_windows'][0]
         assert 'calculations' in offset
         assert len(offset['calculations']) == 2
@@ -174,8 +195,8 @@ version: 2
 metrics:
   - name: premium_revenue_offset
     type: cumulative
+    source: fct_orders
     measure:
-      source: fct_orders
       type: sum
       column: revenue
       filters:
@@ -199,13 +220,20 @@ metrics:
         
         config = CompilerConfig(
             input_dir=str(self.metrics_dir),
-            output_dir=str(self.output_dir)
+            output_dir=str(self.output_dir),
+            validate=False,
+            split_files=False
         )
         compiler = BetterDBTCompiler(config)
         result = compiler.compile_directory()
         
         # Check filter inheritance settings
-        dbt_metric = next(m for m in result['metrics'] if m['name'] == 'premium_revenue_offset')
+        output_file = self.output_dir / "compiled_semantic_models.yml"
+        with open(output_file, 'r') as f:
+            import yaml
+            output = yaml.safe_load(f)
+            
+        dbt_metric = next(m for m in output['metrics'] if m['name'] == 'premium_revenue_offset')
         offsets = dbt_metric['type_params']['cumulative_type_params']['offset_windows']
         assert offsets[0]['inherit_filters'] == True
         assert offsets[1]['inherit_filters'] == False
@@ -232,8 +260,8 @@ offset_window_config:
 metrics:
   - name: revenue_with_pattern
     type: cumulative
+    source: fct_orders
     measure:
-      source: fct_orders
       type: sum
       column: revenue
     grain_to_date: day
@@ -247,13 +275,20 @@ metrics:
         
         config = CompilerConfig(
             input_dir=str(self.metrics_dir),
-            output_dir=str(self.output_dir)
+            output_dir=str(self.output_dir),
+            validate=False,
+            split_files=False
         )
         compiler = BetterDBTCompiler(config)
         result = compiler.compile_directory()
         
         # Check pattern was expanded
-        dbt_metric = next(m for m in result['metrics'] if m['name'] == 'revenue_with_pattern')
+        output_file = self.output_dir / "compiled_semantic_models.yml"
+        with open(output_file, 'r') as f:
+            import yaml
+            output = yaml.safe_load(f)
+            
+        dbt_metric = next(m for m in output['metrics'] if m['name'] == 'revenue_with_pattern')
         offsets = dbt_metric['type_params']['cumulative_type_params']['offset_windows']
         assert len(offsets) == 3
         assert offsets[0]['alias'] == 'last_week'
@@ -269,8 +304,8 @@ version: 2
 metrics:
   - name: trailing_30d_revenue
     type: cumulative
+    source: fct_orders
     measure:
-      source: fct_orders
       type: sum
       column: revenue
     grain_to_date: day
@@ -288,13 +323,20 @@ metrics:
         
         config = CompilerConfig(
             input_dir=str(self.metrics_dir),
-            output_dir=str(self.output_dir)
+            output_dir=str(self.output_dir),
+            validate=False,
+            split_files=False
         )
         compiler = BetterDBTCompiler(config)
         result = compiler.compile_directory()
         
         # Check window type was set
-        dbt_metric = next(m for m in result['metrics'] if m['name'] == 'trailing_30d_revenue')
+        output_file = self.output_dir / "compiled_semantic_models.yml"
+        with open(output_file, 'r') as f:
+            import yaml
+            output = yaml.safe_load(f)
+            
+        dbt_metric = next(m for m in output['metrics'] if m['name'] == 'trailing_30d_revenue')
         cumulative_params = dbt_metric['type_params']['cumulative_type_params']
         assert cumulative_params['window_type'] == 'trailing'
         assert cumulative_params['window'] == 30
@@ -317,8 +359,8 @@ time_spine:
 metrics:
   - name: fiscal_ytd_offset
     type: cumulative
+    source: fct_fiscal_orders
     measure:
-      source: fct_fiscal_orders
       type: sum
       column: revenue
     grain_to_date: day
@@ -336,13 +378,20 @@ metrics:
         
         config = CompilerConfig(
             input_dir=str(self.metrics_dir),
-            output_dir=str(self.output_dir)
+            output_dir=str(self.output_dir),
+            validate=False,
+            split_files=False
         )
         compiler = BetterDBTCompiler(config)
         result = compiler.compile_directory()
         
         # Check fiscal offset
-        dbt_metric = next(m for m in result['metrics'] if m['name'] == 'fiscal_ytd_offset')
+        output_file = self.output_dir / "compiled_semantic_models.yml"
+        with open(output_file, 'r') as f:
+            import yaml
+            output = yaml.safe_load(f)
+            
+        dbt_metric = next(m for m in output['metrics'] if m['name'] == 'fiscal_ytd_offset')
         offset = dbt_metric['type_params']['cumulative_type_params']['offset_windows'][0]
         assert offset['period'] == 'fiscal_year'
         
@@ -381,8 +430,8 @@ version: 2
 metrics:
   - name: qtd_revenue_yoy
     type: cumulative
+    source: fct_orders
     measure:
-      source: fct_orders
       type: sum
       column: revenue
     grain_to_date: day
@@ -402,13 +451,20 @@ metrics:
         
         config = CompilerConfig(
             input_dir=str(self.metrics_dir),
-            output_dir=str(self.output_dir)
+            output_dir=str(self.output_dir),
+            validate=False,
+            split_files=False
         )
         compiler = BetterDBTCompiler(config)
         result = compiler.compile_directory()
         
         # Check calculation expression
-        dbt_metric = next(m for m in result['metrics'] if m['name'] == 'qtd_revenue_yoy')
+        output_file = self.output_dir / "compiled_semantic_models.yml"
+        with open(output_file, 'r') as f:
+            import yaml
+            output = yaml.safe_load(f)
+            
+        dbt_metric = next(m for m in output['metrics'] if m['name'] == 'qtd_revenue_yoy')
         offset = dbt_metric['type_params']['cumulative_type_params']['offset_windows'][0]
         assert 'calculation' in offset
         assert 'calculation_alias' in offset

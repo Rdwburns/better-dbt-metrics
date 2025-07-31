@@ -1,0 +1,243 @@
+version: 2
+
+# Examples of using standard semantic model templates
+# Import the standard templates
+imports:
+  - ../../templates/semantic_models/standard_templates.yml as std
+
+# Example 1: E-commerce orders using the standard template
+semantic_models:
+  - name: orders
+    description: "Order facts using standard e-commerce template"
+    template: std.ecommerce_orders
+    parameters:
+      table_name: fct_orders
+      order_date_column: order_date
+      amount_column: total_amount
+      quantity_column: item_quantity
+
+  # Example 2: Customer dimension using standard template
+  - name: customers
+    description: "Customer dimension using standard template"
+    template: std.customer_dimension
+    parameters:
+      table_name: dim_customers
+      customer_key: customer_id
+      signup_date_column: created_date
+
+  # Example 3: Product events using event tracking template
+  - name: product_events
+    description: "Product interaction events"
+    template: std.event_tracking
+    parameters:
+      table_name: fct_product_events
+      event_timestamp_column: event_timestamp
+      user_key: user_id
+
+  # Example 4: Custom fact table using standard template with overrides
+  - name: sales_transactions
+    description: "Sales transactions with custom additions"
+    template: std.standard_fact_table
+    parameters:
+      table_name: fct_sales
+      date_column: sale_date
+      primary_key: sale_id
+      grain: transaction
+    
+    # Add custom entities beyond the template
+    entities:
+      - name: salesperson_id
+        type: foreign
+        expr: salesperson_id
+      - name: territory_id
+        type: foreign
+        expr: territory_id
+    
+    # Add custom measures beyond auto-inference
+    measures:
+      - name: commission_amount
+        agg: sum
+        expr: commission
+        agg_time_dimension: sale_date
+      - name: profit_margin
+        agg: avg
+        expr: (sale_amount - cost) / sale_amount
+        agg_time_dimension: sale_date
+
+  # Example 5: Marketing campaigns using marketing template
+  - name: campaign_performance
+    description: "Marketing campaign performance"
+    template: std.marketing_attribution
+    parameters:
+      table_name: fct_campaign_performance
+      attribution_date_column: campaign_date
+      spend_column: total_spend
+      impressions_column: total_impressions
+      clicks_column: total_clicks
+
+  # Example 6: Financial transactions
+  - name: payments
+    description: "Payment transactions"
+    template: std.financial_transactions
+    parameters:
+      table_name: fct_payments
+      transaction_date_column: payment_date
+      amount_column: payment_amount
+
+# Example 7: Using entity sets
+semantic_models:
+  - name: order_line_items
+    description: "Order line items with standard e-commerce entities"
+    source: fct_order_line_items
+    entity_set: std.ecommerce_fact  # Apply standard e-commerce entities
+    
+    # Additional custom dimensions
+    dimensions:
+      - name: line_item_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: created_date
+      - name: discount_type
+        type: categorical
+        expr: discount_type
+    
+    # Custom measures
+    measures:
+      - name: line_item_count
+        agg: count
+        expr: line_item_id
+        agg_time_dimension: line_item_date
+      - name: total_line_value
+        agg: sum
+        expr: line_total
+        agg_time_dimension: line_item_date
+
+# Example metrics using the templated semantic models
+metrics:
+  # Revenue metrics from orders semantic model
+  - name: daily_revenue
+    type: simple
+    description: "Daily total revenue"
+    semantic_model: orders
+    measure: total_amount
+    dimensions:
+      - order_date
+
+  - name: monthly_revenue
+    type: simple
+    description: "Monthly total revenue"
+    semantic_model: orders
+    measure: total_amount
+    dimensions:
+      - order_date_month
+
+  # Customer acquisition metrics from customers semantic model
+  - name: new_customers_daily
+    type: simple
+    description: "New customers acquired daily"
+    semantic_model: customers
+    measure: customer_count  # This would be auto-inferred
+    dimensions:
+      - created_date
+
+  # Event-based metrics from product_events semantic model
+  - name: daily_active_users
+    type: simple
+    description: "Daily active users from product events"
+    semantic_model: product_events
+    measure: unique_users
+    dimensions:
+      - event_date
+
+  - name: event_engagement_rate
+    type: ratio
+    description: "Event engagement rate by platform"
+    numerator:
+      semantic_model: product_events
+      measure: event_count
+      filters:
+        - event_category: 'engagement'
+    denominator:
+      semantic_model: product_events
+      measure: event_count
+    dimensions:
+      - platform
+
+  # Marketing performance metrics
+  - name: campaign_roi
+    type: ratio
+    description: "Campaign ROI"
+    numerator:
+      semantic_model: orders
+      measure: total_amount
+      join:
+        - semantic_model: campaign_performance
+          join_type: inner
+          join_keys:
+            - customer_id
+    denominator:
+      semantic_model: campaign_performance
+      measure: total_spend
+    dimensions:
+      - campaign_date
+      - channel
+
+  # Financial metrics
+  - name: daily_payment_volume
+    type: simple
+    description: "Daily payment volume"
+    semantic_model: payments
+    measure: total_amount
+    dimensions:
+      - payment_date
+
+  - name: average_transaction_size
+    type: simple
+    description: "Average transaction size"
+    semantic_model: payments
+    measure: avg_transaction_amount
+    dimensions:
+      - payment_method
+      - payment_date
+
+# Example of template inheritance and customization
+semantic_model_templates:
+  # Custom template extending the standard e-commerce template
+  enhanced_ecommerce_orders:
+    extends: std.ecommerce_orders  # Inherit from standard template
+    description: "Enhanced e-commerce orders with additional features"
+    additional_parameters:
+      - name: discount_column
+        type: string
+        default: "discount_amount"
+      - name: tax_column
+        type: string
+        default: "tax_amount"
+    
+    additional_measures:
+      - name: total_discount
+        agg: sum
+        expr: "{{ discount_column }}"
+        agg_time_dimension: "{{ order_date_column }}"
+      - name: total_tax
+        agg: sum
+        expr: "{{ tax_column }}"
+        agg_time_dimension: "{{ order_date_column }}"
+      - name: net_revenue
+        agg: sum
+        expr: "{{ amount_column }} - {{ discount_column }}"
+        agg_time_dimension: "{{ order_date_column }}"
+
+# Usage of the enhanced template
+semantic_models:
+  - name: enhanced_orders
+    description: "Orders with enhanced metrics"
+    template: enhanced_ecommerce_orders
+    parameters:
+      table_name: fct_orders_detailed
+      order_date_column: order_date
+      amount_column: gross_amount
+      quantity_column: total_quantity
+      discount_column: discount_amount
+      tax_column: tax_amount

@@ -117,10 +117,28 @@ class BetterDBTParser:
                 
             # Process entity sets if present
             if 'entity_sets' in processed_data and 'semantic_models' in processed_data:
+                # Convert entity_sets list to dict for easier lookup
+                entity_sets_dict = {}
+                if isinstance(processed_data.get('entity_sets'), list):
+                    for entity_set in processed_data.get('entity_sets', []):
+                        if isinstance(entity_set, dict) and 'name' in entity_set:
+                            entity_sets_dict[entity_set['name']] = entity_set
+                elif isinstance(processed_data.get('entity_sets'), dict):
+                    entity_sets_dict = processed_data.get('entity_sets', {})
+                
+                # Convert entities list to dict for easier lookup
+                entities_dict = {}
+                if isinstance(processed_data.get('entities'), list):
+                    for entity in processed_data.get('entities', []):
+                        if isinstance(entity, dict) and 'name' in entity:
+                            entities_dict[entity['name']] = entity
+                elif isinstance(processed_data.get('entities'), dict):
+                    entities_dict = processed_data.get('entities', {})
+                
                 processed_data['semantic_models'] = self._apply_entity_sets(
                     processed_data['semantic_models'], 
-                    processed_data.get('entity_sets', {}),
-                    processed_data.get('entities', {})
+                    entity_sets_dict,
+                    entities_dict
                 )
                 
             # Store current data for compiler access
@@ -446,33 +464,127 @@ class BetterDBTParser:
         processed_models = []
         
         for model in semantic_models:
-            if 'entity_set' in model and model['entity_set'] in entity_sets:
+            if 'entity_set' in model:
+                entity_set_name = model['entity_set']
+                
+                # Check if entity set exists
+                if entity_set_name not in entity_sets:
+                    if self.debug:
+                        print(f"[DEBUG] Warning: Entity set '{entity_set_name}' not found for model '{model.get('name')}'")
+                    processed_models.append(model)
+                    continue
+                
                 # Apply entity set
-                entity_set = entity_sets[model['entity_set']]
+                entity_set = entity_sets[entity_set_name]
                 model_copy = deepcopy(model)
                 
                 # Initialize entities list if not present
                 if 'entities' not in model_copy:
                     model_copy['entities'] = []
                 
+                # Track existing entity names to avoid duplicates
+                existing_entity_names = set()
+                for existing_entity in model_copy['entities']:
+                    if isinstance(existing_entity, dict) and 'name' in existing_entity:
+                        existing_entity_names.add(existing_entity['name'])
+                    elif isinstance(existing_entity, str):
+                        existing_entity_names.add(existing_entity)
+                
                 # Add primary entity from entity set
                 if 'primary_entity' in entity_set:
-                    model_copy['entities'].append(entity_set['primary_entity'])
+                    primary_entity = entity_set['primary_entity']
+                    
+                    # Handle different primary entity formats
+                    if isinstance(primary_entity, str):
+                        # Simple string reference to entity name
+                        if primary_entity not in existing_entity_names:
+                            if primary_entity in entities:
+                                # Use global entity definition
+                                global_entity = deepcopy(entities[primary_entity])
+                                global_entity['type'] = 'primary'  # Override type to primary
+                                model_copy['entities'].append(global_entity)
+                            else:
+                                # Create basic entity definition
+                                model_copy['entities'].append({
+                                    'name': primary_entity,
+                                    'type': 'primary',
+                                    'expr': primary_entity
+                                })
+                            existing_entity_names.add(primary_entity)
+                    elif isinstance(primary_entity, dict):
+                        # Full entity definition
+                        entity_name = primary_entity.get('name')
+                        if entity_name and entity_name not in existing_entity_names:
+                            primary_copy = deepcopy(primary_entity)
+                            primary_copy['type'] = 'primary'  # Ensure it's marked as primary
+                            model_copy['entities'].append(primary_copy)
+                            existing_entity_names.add(entity_name)
                 
                 # Add foreign entities
                 if 'foreign_entities' in entity_set:
                     for entity in entity_set['foreign_entities']:
+                        entity_name = None
+                        
                         # Handle reference to global entities
                         if isinstance(entity, dict) and '$ref' in entity:
                             ref_path = entity['$ref']
                             if ref_path.startswith('entities.'):
                                 entity_name = ref_path.split('.', 1)[1]
+                                if entity_name in entities and entity_name not in existing_entity_names:
+                                    global_entity = deepcopy(entities[entity_name])
+                                    global_entity['type'] = 'foreign'  # Override type to foreign
+                                    model_copy['entities'].append(global_entity)
+                                    existing_entity_names.add(entity_name)
+                        elif isinstance(entity, str):
+                            # Simple string reference
+                            entity_name = entity
+                            if entity_name not in existing_entity_names:
                                 if entity_name in entities:
-                                    model_copy['entities'].append(entities[entity_name])
-                            else:
-                                model_copy['entities'].append(entity)
-                        else:
-                            model_copy['entities'].append(entity)
+                                    # Use global entity definition
+                                    global_entity = deepcopy(entities[entity_name])
+                                    global_entity['type'] = 'foreign'  # Override type to foreign
+                                    model_copy['entities'].append(global_entity)
+                                else:
+                                    # Create basic entity definition
+                                    model_copy['entities'].append({
+                                        'name': entity_name,
+                                        'type': 'foreign',
+                                        'expr': entity_name
+                                    })
+                                existing_entity_names.add(entity_name)
+                        elif isinstance(entity, dict):
+                            # Full entity definition
+                            entity_name = entity.get('name')
+                            if entity_name and entity_name not in existing_entity_names:
+                                foreign_copy = deepcopy(entity)
+                                foreign_copy['type'] = 'foreign'  # Ensure it's marked as foreign
+                                model_copy['entities'].append(foreign_copy)
+                                existing_entity_names.add(entity_name)
+                
+                # Handle includes from entity set (more complex relationships)
+                if 'includes' in entity_set:
+                    for include in entity_set['includes']:
+                        if isinstance(include, dict) and 'entity' in include:
+                            entity_name = include['entity']
+                            
+                            if entity_name not in existing_entity_names and entity_name in entities:
+                                entity_def = deepcopy(entities[entity_name])
+                                
+                                # Apply join type from include if specified
+                                join_type = include.get('join_type', 'left')
+                                if 'meta' not in entity_def:
+                                    entity_def['meta'] = {}
+                                entity_def['meta']['join_type'] = join_type
+                                
+                                # Handle through relationships
+                                if 'through' in include:
+                                    entity_def['meta']['through'] = include['through']
+                                
+                                # Set type to foreign for included entities
+                                entity_def['type'] = 'foreign'
+                                
+                                model_copy['entities'].append(entity_def)
+                                existing_entity_names.add(entity_name)
                 
                 # Remove entity_set field after applying
                 model_copy.pop('entity_set', None)

@@ -118,6 +118,24 @@ class MetricsValidator:
                 
             file_result = self.validate_file(file_path)
             result.merge(file_result)
+        
+        # Cross-file validation - check for duplicate metric names
+        metric_to_files = {}
+        for file_path, data in self.parsed_cache.items():
+            for metric in data.get('metrics', []):
+                name = metric.get('name')
+                if name:
+                    if name not in metric_to_files:
+                        metric_to_files[name] = []
+                    metric_to_files[name].append(file_path)
+        
+        # Report duplicates
+        for metric_name, files in metric_to_files.items():
+            if len(files) > 1:
+                result.add_error(ValidationError(
+                    message=f"Metric '{metric_name}' defined in multiple files: {', '.join(files)}",
+                    suggestion="Use unique metric names across all files"
+                ))
             
         return result
         

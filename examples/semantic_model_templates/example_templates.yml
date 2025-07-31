@@ -1,0 +1,224 @@
+version: 2
+
+# Example semantic model templates
+
+semantic_model_templates:
+  # Standard fact table template
+  standard_fact_table:
+    description: "Template for standard fact tables with common dimensions"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+        description: "The source table name"
+      - name: date_column
+        type: string
+        required: true
+        description: "The primary date column"
+      - name: primary_key
+        type: string
+        default: "id"
+        description: "The primary key column"
+      - name: currency_column
+        type: string
+        default: null
+        description: "Optional currency/amount column for financial metrics"
+    template:
+      source: "{{ table_name }}"
+      entities:
+        - name: "{{ primary_key }}"
+          type: primary
+          expr: "{{ primary_key }}"
+      dimensions:
+        - name: date
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ date_column }}"
+        - name: week
+          type: time
+          type_params:
+            time_granularity: week
+          expr: "date_trunc('week', {{ date_column }})"
+        - name: month
+          type: time
+          type_params:
+            time_granularity: month
+          expr: "date_trunc('month', {{ date_column }})"
+        - name: quarter
+          type: time
+          type_params:
+            time_granularity: quarter
+          expr: "date_trunc('quarter', {{ date_column }})"
+        - name: year
+          type: time
+          type_params:
+            time_granularity: year
+          expr: "date_trunc('year', {{ date_column }})"
+      measures:
+        - name: record_count
+          agg: count
+          expr: "{{ primary_key }}"
+          agg_time_dimension: date
+        {% if currency_column %}
+        - name: total_amount
+          agg: sum
+          expr: "{{ currency_column }}"
+          agg_time_dimension: date
+        - name: average_amount
+          agg: avg
+          expr: "{{ currency_column }}"
+          agg_time_dimension: date
+        {% endif %}
+
+  # E-commerce fact table template
+  ecommerce_fact_table:
+    description: "Template for e-commerce transaction tables"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: order_date_column
+        type: string
+        default: "order_date"
+      - name: customer_id_column
+        type: string
+        default: "customer_id"
+      - name: product_id_column
+        type: string
+        default: "product_id"
+      - name: revenue_column
+        type: string
+        default: "revenue"
+      - name: quantity_column
+        type: string
+        default: "quantity"
+    template:
+      source: "{{ table_name }}"
+      entities:
+        - name: order_id
+          type: primary
+          expr: order_id
+        - name: customer_id
+          type: foreign
+          expr: "{{ customer_id_column }}"
+        - name: product_id
+          type: foreign
+          expr: "{{ product_id_column }}"
+      dimensions:
+        - name: order_date
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ order_date_column }}"
+        - name: order_week
+          type: time
+          type_params:
+            time_granularity: week
+          expr: "date_trunc('week', {{ order_date_column }})"
+        - name: order_month
+          type: time
+          type_params:
+            time_granularity: month
+          expr: "date_trunc('month', {{ order_date_column }})"
+        - name: channel
+          type: categorical
+          expr: channel
+        - name: region
+          type: categorical
+          expr: region
+        - name: order_status
+          type: categorical
+          expr: order_status
+      measures:
+        - name: order_count
+          agg: count
+          expr: order_id
+          agg_time_dimension: order_date
+        - name: unique_customers
+          agg: count_distinct
+          expr: "{{ customer_id_column }}"
+          agg_time_dimension: order_date
+        - name: total_revenue
+          agg: sum
+          expr: "{{ revenue_column }}"
+          agg_time_dimension: order_date
+        - name: total_quantity
+          agg: sum
+          expr: "{{ quantity_column }}"
+          agg_time_dimension: order_date
+        - name: average_order_value
+          agg: avg
+          expr: "{{ revenue_column }}"
+          agg_time_dimension: order_date
+
+  # Slowly changing dimension template
+  dimension_table:
+    description: "Template for slowly changing dimension tables"
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: entity_name
+        type: string
+        required: true
+        description: "The entity this dimension describes (e.g., customer, product)"
+      - name: primary_key
+        type: string
+        default: "{{ entity_name }}_id"
+      - name: natural_key
+        type: string
+        default: "{{ entity_name }}_code"
+      - name: effective_from
+        type: string
+        default: "valid_from"
+      - name: effective_to
+        type: string
+        default: "valid_to"
+    template:
+      source: "{{ table_name }}"
+      entities:
+        - name: "{{ primary_key }}"
+          type: primary
+          expr: "{{ primary_key }}"
+        - name: "{{ natural_key }}"
+          type: unique
+          expr: "{{ natural_key }}"
+      dimensions:
+        - name: effective_date
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ effective_from }}"
+        - name: expiry_date
+          type: time
+          type_params:
+            time_granularity: day
+          expr: "{{ effective_to }}"
+        - name: is_current
+          type: categorical
+          expr: "case when {{ effective_to }} is null then 'Y' else 'N' end"
+      measures:
+        - name: "{{ entity_name }}_count"
+          agg: count_distinct
+          expr: "{{ primary_key }}"
+        - name: current_{{ entity_name }}_count
+          agg: count_distinct
+          expr: "case when {{ effective_to }} is null then {{ primary_key }} end"
+
+# Example usage:
+semantic_models:
+  - name: orders
+    description: "Order transactions"
+    template: ecommerce_fact_table
+    parameters:
+      table_name: fct_orders
+      order_date_column: created_at
+      revenue_column: order_amount
+      
+  - name: customers
+    description: "Customer dimension with history"
+    template: dimension_table
+    parameters:
+      table_name: dim_customers
+      entity_name: customer

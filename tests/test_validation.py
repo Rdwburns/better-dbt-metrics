@@ -25,6 +25,22 @@ class TestValidationFramework:
         self.metrics_dir = Path(self.test_dir) / "metrics"
         self.metrics_dir.mkdir(parents=True)
         
+        # Create mock models directory to satisfy model validation
+        self.models_dir = Path(self.test_dir) / "models"
+        self.models_dir.mkdir(parents=True)
+        
+        # Create a mock dbt_project.yml
+        dbt_project = Path(self.test_dir) / "dbt_project.yml"
+        dbt_project.write_text("""
+name: test_project
+version: '1.0.0'
+model-paths: ["models"]
+""")
+        
+        # Create mock model files
+        (self.models_dir / "fct_orders.sql").write_text("SELECT * FROM raw.orders")
+        (self.models_dir / "fct_sales.sql").write_text("SELECT * FROM raw.sales")
+        
     def teardown_method(self):
         """Clean up test fixtures"""
         shutil.rmtree(self.test_dir)
