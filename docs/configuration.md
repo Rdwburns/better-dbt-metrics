@@ -219,6 +219,125 @@ validation:
   validate_sources: true       # Check if sources exist
 ```
 
+### Auto-Inference Configuration (New!)
+
+Customize how Better-DBT-Metrics automatically detects dimensions, entities, and measures:
+
+```yaml
+auto_inference:
+  enabled: true                 # Enable/disable auto-inference globally
+  
+  # Time dimension detection patterns
+  time_dimension_patterns:
+    suffix:                     # Column suffixes
+      - _date
+      - _at
+      - _time
+      - _timestamp
+      - _datetime
+    prefix:                     # Column prefixes
+      - date_
+      - created_
+      - updated_
+      - modified_
+      - deleted_
+    exact:                      # Exact column names
+      - date
+      - time
+      - timestamp
+      - created
+      - updated
+  
+  # Categorical dimension detection
+  categorical_patterns:
+    suffix:
+      - _id
+      - _code
+      - _type
+      - _status
+      - _category
+      - _group
+      - _segment
+    prefix:
+      - type_
+      - status_
+      - category_
+    max_cardinality: 100        # Max unique values to consider categorical
+    boolean_keywords:           # Boolean column indicators
+      - is_
+      - has_
+      - can_
+      - should_
+      - will_
+  
+  # Numeric measure detection
+  numeric_measure_patterns:
+    suffix:
+      - _amount
+      - _value
+      - _price
+      - _cost
+      - _revenue
+      - _count
+      - _total
+      - _sum
+    prefix:
+      - amount_
+      - value_
+      - price_
+      - cost_
+      - revenue_
+      - total_
+    exact:
+      - amount
+      - value
+      - price
+      - cost
+      - revenue
+      - total
+      - quantity
+      - count
+  
+  # Columns to exclude from inference
+  exclude_patterns:
+    prefix:
+      - tmp_
+      - temp_
+      - staging_
+    suffix:
+      - _raw
+      - _hash
+      - _encrypted
+      - _backup
+    exact:
+      - row_number
+      - rank
+      - dense_rank
+    starts_with_underscore: true  # Exclude columns starting with _
+```
+
+Use these patterns to match your organization's naming conventions. For example:
+
+```yaml
+# E-commerce specific patterns
+auto_inference:
+  time_dimension_patterns:
+    suffix:
+      - _ordered_at
+      - _shipped_at
+      - _delivered_at
+  categorical_patterns:
+    prefix:
+      - product_
+      - customer_
+      - merchant_
+  numeric_measure_patterns:
+    suffix:
+      - _gmv
+      - _aov
+      - _ltv
+```
+
 ## Using Configuration
 
 ### CLI Override

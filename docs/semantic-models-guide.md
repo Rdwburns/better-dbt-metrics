@@ -73,7 +73,9 @@ semantic_models:
 
 ## Semantic Model Templates
 
-Just like metrics, semantic models support templates for reusability:
+Just like metrics, semantic models support templates for reusability. Templates use Jinja2 syntax for powerful parameterization:
+
+### Basic Template Example
 
 ```yaml
 version: 2
@@ -81,16 +83,20 @@ version: 2
 # Define a template
 semantic_model_templates:
   standard_fact_table:
+    description: "Template for standard fact tables"
     parameters:
       - name: table_name
         type: string
         required: true
+        description: "Source table name"
       - name: date_column
         type: string
         required: true
+        description: "Primary date column"
       - name: primary_key
         type: string
         default: "id"
+        description: "Primary key column"
     template:
       source: "{{ table_name }}"
       entities:
@@ -108,6 +114,11 @@ semantic_model_templates:
           type_params:
             time_granularity: week
           expr: "date_trunc('week', {{ date_column }})"
+        - name: month
+          type: time
+          type_params:
+            time_granularity: month
+          expr: "date_trunc('month', {{ date_column }})"
 
 # Use the template
 semantic_models:
@@ -117,11 +128,96 @@ semantic_models:
       table_name: fct_transactions
       date_column: transaction_date
       primary_key: transaction_id
-    # Add additional fields
+    # Add additional fields beyond the template
     measures:
       - name: transaction_count
         agg: count
         expr: transaction_id
+        agg_time_dimension: date
+```
+
+### Advanced Template Features
+
+#### Conditional Logic
+
+Templates support Jinja2 conditionals for flexible schemas:
+
+```yaml
+semantic_model_templates:
+  flexible_fact:
+    parameters:
+      - name: table_name
+        required: true
+      - name: include_financial
+        type: boolean
+        default: false
+      - name: amount_column
+        default: "amount"
+    template:
+      source: "{{ table_name }}"
+      measures:
+        - name: record_count
+          agg: count
+          expr: "*"
+        {% if include_financial %}
+        - name: total_amount
+          agg: sum
+          expr: "{{ amount_column }}"
+        - name: average_amount
+          agg: avg
+          expr: "{{ amount_column }}"
+        {% endif %}
+```
+
+#### Loops and Lists
+
+Generate multiple similar elements:
+
+```yaml
+semantic_model_templates:
+  multi_currency_fact:
+    parameters:
+      - name: table_name
+        required: true
+      - name: currencies
+        type: list
+        default: ["USD", "EUR", "GBP"]
+    template:
+      source: "{{ table_name }}"
+      measures:
+        {% for currency in currencies %}
+        - name: total_{{ currency|lower }}
+          agg: sum
+          expr: "amount_{{ currency }}"
+          agg_time_dimension: date
+        {% endfor %}
+```
+
+#### Template Composition
+
+Combine templates with additional fields:
+
+```yaml
+semantic_models:
+  - name: orders
+    template: standard_fact_table
+    parameters:
+      table_name: fct_orders
+      date_column: order_date
+    # Template provides base structure
+    # Add domain-specific elements
+    entities:
+      - name: customer_id
+        type: foreign
+        expr: customer_id
+    dimensions:
+      - name: order_status
+        type: categorical
+        expr: status
+    measures:
+      - name: revenue
+        agg: sum
+        expr: order_amount
         agg_time_dimension: date
 ```
 
@@ -193,15 +289,44 @@ metrics:
       - order_date
       - region
 
-# New approach with semantic models
+# New approach with semantic models (Recommended)
 metrics:
   - name: revenue
     type: simple
-    semantic_model: orders  # References the semantic model
-    measure: total_revenue  # References a measure in the semantic model
+    semantic_model: orders  # References the semantic model by name
+    measure: total_revenue  # References a measure by name (not a dict)
     dimensions:
       - order_date
       - region
+```
+
+### Key Differences in the New Syntax:
+
+1. **`semantic_model` instead of `source`**: Reference a semantic model definition
+2. **`measure` as a string**: Reference a measure by name from the semantic model
+3. **Automatic inheritance**: Dimensions and entities are available from the semantic model
+
+### Cross-File References
+
+Metrics can reference semantic models defined in different files:
+
+```yaml
+# semantic_models/customers.yml
+semantic_models:
+  - name: customers
+    source: dim_customers
+    measures:
+      - name: customer_count
+        agg: count_distinct
+        expr: customer_id
+
+# metrics/customer_metrics.yml
+metrics:
+  - name: active_customers
+    type: simple
+    semantic_model: customers  # Cross-file reference
+    measure: customer_count
+    filter: "is_active = true"
 ```
 
 Benefits of the new approach:
@@ -209,6 +334,43 @@ Benefits of the new approach:
 - Consistent aggregation time dimensions
 - Cleaner metric definitions
 - Better separation of concerns
+- Validation ensures measures exist
+
+### Parameter Validation
+
+Templates validate parameters at compile time:
+
+```yaml
+semantic_model_templates:
+  validated_template:
+    parameters:
+      - name: table_name
+        type: string
+        required: true
+      - name: metric_type
+        type: string
+        enum: ["revenue", "volume", "efficiency"]
+        required: true
+      - name: decimal_places
+        type: number
+        default: 2
+
+# This will error - invalid metric_type
+semantic_models:
+  - name: bad_model
+    template: validated_template
+    parameters:
+      table_name: fct_test
+      metric_type: "invalid"  # Error: not in enum
+```
+
+### Template Best Practices
+
+1. **Use descriptive parameter names** - Make it clear what each parameter controls
+2. **Provide defaults where sensible** - Reduce boilerplate for common cases
+3. **Document parameters** - Include description field for each parameter
+4. **Validate inputs** - Use type and enum constraints
+5. **Keep templates focused** - One template per pattern, compose as needed
 
 ## Migration from Source-Based Metrics
 
@@ -334,18 +496,66 @@ semantic_model_templates:
 
 ## Advanced Features
 
-### Auto-Inference (Coming Soon)
+### Auto-Inference
 
-Configure automatic dimension detection:
+Better-DBT-Metrics can automatically detect dimensions, entities, and measures based on column names and types:
+
 ```yaml
 semantic_models:
   - name: orders
     source: fct_orders
     auto_infer:
+      dimensions: true      # Auto-detect time and categorical dimensions
+      entities: true        # Auto-detect primary/foreign keys
+      measures: true        # Auto-detect numeric measures
+      exclude_columns:      # Exclude specific columns
+        - _fivetran_synced
+        - internal_id
+```
+
+#### How Auto-Inference Works:
+
+1. **Time Dimensions**: Detected by suffixes like `_date`, `_at`, `_timestamp` or date/timestamp data types
+2. **Categorical Dimensions**: Detected by suffixes like `_type`, `_status`, `_category` or low cardinality
+3. **Entities**: Detected by `_id` suffix and key constraints
+4. **Measures**: Detected by numeric types and suffixes like `_amount`, `_value`, `_count`
+
+#### Combining Manual and Auto-Inferred:
+
+```yaml
+semantic_models:
+  - name: orders
+    source: fct_orders
+    
+    # Manually define critical dimensions
+    dimensions:
+      - name: order_date
+        type: time
+        type_params:
+          time_granularity: hour  # More specific than auto-inferred 'day'
+    
+    # Auto-infer additional dimensions
+    auto_infer:
       dimensions: true
-      time_dimensions:
-        from_columns: [order_date, created_at]
-      exclude_columns: [_fivetran_synced]
+      exclude_columns: [order_date]  # Don't auto-infer what we defined manually
+```
+
+#### Customizing Inference Patterns:
+
+Configure patterns in `bdm_config.yml`:
+
+```yaml
+auto_inference:
+  time_dimension_patterns:
+    suffix:
+      - _created_at
+      - _updated_at
+      - _processed_date
+  categorical_patterns:
+    prefix:
+      - product_
+      - customer_
+    max_cardinality: 50  # Lower threshold
 ```
 
 ### Join Paths

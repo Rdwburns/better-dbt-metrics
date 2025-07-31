@@ -60,13 +60,32 @@ class BetterDBTCompiler:
         
         # Initialize auto-inference engine
         inference_config = InferenceConfig()
+        
         # Apply any inference settings from BDM config
-        if hasattr(self.bdm_config, 'auto_inference'):
-            # Update inference config from BDM config if available
-            inference_settings = getattr(self.bdm_config, 'auto_inference', {})
+        if hasattr(self.bdm_config, 'auto_inference') and self.bdm_config.auto_inference:
+            inference_settings = self.bdm_config.auto_inference
+            
+            # Update enabled flag
             if 'enabled' in inference_settings:
                 inference_config.enabled = inference_settings['enabled']
-            # Additional inference config can be added here
+            
+            # Update pattern configurations
+            if 'time_dimension_patterns' in inference_settings:
+                inference_config.time_dimension_patterns.update(inference_settings['time_dimension_patterns'])
+                
+            if 'categorical_patterns' in inference_settings:
+                inference_config.categorical_patterns.update(inference_settings['categorical_patterns'])
+                
+            if 'numeric_measure_patterns' in inference_settings:
+                inference_config.numeric_measure_patterns.update(inference_settings['numeric_measure_patterns'])
+                
+            if 'exclude_patterns' in inference_settings:
+                inference_config.exclude_patterns.update(inference_settings['exclude_patterns'])
+                
+            if self.config.debug:
+                print(f"[DEBUG] Applied auto-inference config from bdm_config.yml")
+                print(f"[DEBUG] Auto-inference enabled: {inference_config.enabled}")
+                
         self.auto_inference = AutoInferenceEngine(inference_config)
         
         # Track compilation state
@@ -158,6 +177,9 @@ class BetterDBTCompiler:
                 raise ValueError(error_msg)
             else:
                 raise RuntimeError(f"Compilation failed: {error_msg}")
+        
+        # Resolve any pending semantic model references
+        self._resolve_semantic_model_references()
         
         # Generate output
         output_data = self._generate_output()
@@ -618,10 +640,62 @@ class BetterDBTCompiler:
         # Handle semantic model reference
         if 'semantic_model' in metric_def:
             # Metric references a semantic model instead of a source
-            compiled['semantic_model'] = metric_def['semantic_model']
-            # If a measure is just a string, it references a measure in the semantic model
-            if 'measure' in metric_def and isinstance(metric_def['measure'], str):
-                compiled['measure_ref'] = metric_def['measure']
+            sm_name = metric_def['semantic_model']
+            
+            # Find the semantic model in our compiled semantic models
+            semantic_model = None
+            for sm in self.semantic_models:
+                # Check both with and without sem_ prefix
+                if sm['name'] == f"sem_{sm_name}" or sm['name'] == sm_name:
+                    semantic_model = sm
+                    break
+            
+            if not semantic_model:
+                # Semantic model might not be compiled yet, store reference for later resolution
+                compiled['semantic_model'] = sm_name
+                if self.config.debug:
+                    print(f"[DEBUG] Metric '{metric_def.get('name')}' references semantic model '{sm_name}' (will resolve later)")
+            else:
+                # Extract source from semantic model
+                if 'model' in semantic_model:
+                    # Extract table name from ref()
+                    model_ref = semantic_model['model']
+                    if model_ref.startswith("ref('") and model_ref.endswith("')"):
+                        compiled['source'] = model_ref[5:-2]
+                    else:
+                        compiled['source'] = model_ref
+                    
+                    if self.config.debug:
+                        print(f"[DEBUG] Resolved semantic model '{sm_name}' to source '{compiled['source']}'")
+                
+                # If a measure is referenced by name, resolve it
+                if 'measure' in metric_def and isinstance(metric_def['measure'], str):
+                    measure_name = metric_def['measure']
+                    
+                    for measure in semantic_model.get('measures', []):
+                        if measure['name'] == measure_name:
+                            # Convert semantic model measure to metric measure format
+                            compiled['measure'] = {
+                                'type': measure['agg'],
+                                'column': measure['expr']
+                            }
+                            # Also store the measure reference for dbt output
+                            compiled['measure_ref'] = measure_name
+                            
+                            # Copy agg_time_dimension if present
+                            if 'agg_time_dimension' in measure and 'time_dimension' not in metric_def:
+                                compiled['time_dimension'] = measure['agg_time_dimension']
+                            
+                            if self.config.debug:
+                                print(f"[DEBUG] Resolved measure '{measure_name}' from semantic model")
+                            break
+                    else:
+                        # Measure not found, store reference for validation later
+                        compiled['measure_ref'] = measure_name
+                        # Also store the semantic model name for later validation
+                        compiled['semantic_model'] = sm_name
+                        if self.config.debug:
+                            print(f"[DEBUG] Measure '{measure_name}' not found in semantic model (will validate later)")
         elif 'source' in metric_def:
             # Traditional source-based metric
             compiled['source'] = metric_def['source']
@@ -1501,7 +1575,8 @@ class BetterDBTCompiler:
                         all_dimensions.append(self._to_dbt_dimension(dim))
                         
                 # Add measures
-                if 'measure' in metric:
+                if 'measure' in metric and isinstance(metric['measure'], dict):
+                    # Only process if measure is a dict (not a reference to semantic model measure)
                     measure_name = f"{metric['name']}_measure"
                     if measure_name not in measure_names:
                         measure_names.add(measure_name)
@@ -2253,9 +2328,9 @@ class BetterDBTCompiler:
         # Add type-specific parameters
         if metric['type'] == 'simple':
             # Check if metric references a semantic model
-            if 'semantic_model' in metric:
+            if 'semantic_model' in metric or 'measure_ref' in metric:
                 # Metric references a measure in a semantic model
-                measure_ref = metric.get('measure_ref', metric.get('measure', f"{metric['name']}_measure"))
+                measure_ref = metric.get('measure_ref', f"{metric['name']}_measure")
                 dbt_metric['type_params'] = {
                     'measure': measure_ref
                 }
@@ -2528,6 +2603,78 @@ class BetterDBTCompiler:
             metric_signatures[signature] = metric_name
         
         return metric_name
+    
+    def _resolve_semantic_model_references(self):
+        """Resolve any metrics that reference semantic models"""
+        for metric in self.compiled_metrics:
+            # Process metrics that have either:
+            # 1. A semantic_model reference without a source (need to resolve the model)
+            # 2. A measure_ref that needs validation (even if source is already set)
+            if 'semantic_model' in metric or 'measure_ref' in metric:
+                sm_name = metric.get('semantic_model')
+                
+                # Find the semantic model
+                semantic_model = None
+                if sm_name:
+                    for sm in self.semantic_models:
+                        # Check both with and without sem_ prefix
+                        if sm['name'] == f"sem_{sm_name}" or sm['name'] == sm_name:
+                            semantic_model = sm
+                            break
+                
+                    # If we have a semantic_model reference but no source, resolve it
+                    if semantic_model and 'source' not in metric:
+                        # Extract source from semantic model
+                        if 'model' in semantic_model:
+                            # Extract table name from ref()
+                            model_ref = semantic_model['model']
+                            if model_ref.startswith("ref('") and model_ref.endswith("')"):
+                                metric['source'] = model_ref[5:-2]
+                            else:
+                                metric['source'] = model_ref
+                            
+                            if self.config.debug:
+                                print(f"[DEBUG] Late resolution: semantic model '{sm_name}' to source '{metric['source']}' for metric '{metric['name']}'")
+                    
+                    # If no semantic model was found, raise error
+                    if not semantic_model and sm_name:
+                        raise ValueError(
+                            f"Metric '{metric['name']}' references semantic model '{sm_name}' which doesn't exist"
+                        )
+                
+                # Resolve measure reference if present
+                if 'measure_ref' in metric:
+                    measure_name = metric['measure_ref']
+                    
+                    # Need to find the semantic model if we haven't already
+                    if not semantic_model and sm_name:
+                        raise ValueError(
+                            f"Metric '{metric['name']}' has measure reference but semantic model '{sm_name}' not found"
+                        )
+                    
+                    if semantic_model:
+                        for measure in semantic_model.get('measures', []):
+                            if measure['name'] == measure_name:
+                                # Convert semantic model measure to metric measure format
+                                metric['measure'] = {
+                                    'type': measure['agg'],
+                                    'column': measure['expr']
+                                }
+                                # Copy agg_time_dimension if present
+                                if 'agg_time_dimension' in measure and 'time_dimension' not in metric:
+                                    metric['time_dimension'] = measure['agg_time_dimension']
+                                
+                                if self.config.debug:
+                                    print(f"[DEBUG] Late resolution: measure '{measure_name}' from semantic model")
+                                
+                                # Remove the reference
+                                del metric['measure_ref']
+                                break
+                        else:
+                            raise ValueError(
+                                f"Metric '{metric['name']}' references measure '{measure_name}' "
+                                f"which doesn't exist in semantic model '{sm_name}'"
+                            )
     
     def _find_or_create_semantic_model(self, source: str) -> Dict[str, Any]:
         """Find an existing semantic model or create a new one for the given source"""

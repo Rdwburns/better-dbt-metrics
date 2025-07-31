@@ -96,8 +96,8 @@ metrics:
   - name: daily_revenue
     type: simple
     description: "Daily revenue by region"
-    semantic_model: orders
-    measure: total_revenue
+    semantic_model: orders  # New: Reference semantic model directly
+    measure: total_revenue   # New: Reference measure by name
     dimensions:
       - order_date
       - region
@@ -148,9 +148,76 @@ semantic_models:
     parameters:
       table_name: fct_events
       date_column: event_timestamp
+
+# Auto-infer dimensions and entities (New!)
+semantic_models:
+  - name: customers
+    source: dim_customers
+    auto_infer:
+      dimensions: true  # Automatically detect dimensions
+      entities: true    # Automatically detect primary/foreign keys
+      measures: true    # Automatically detect numeric measures
+      exclude_columns:  # Optionally exclude specific columns
+        - internal_id
+        - _temp_field
+
+# Standard templates for common patterns
+imports:
+  - templates/semantic_models/standard_templates.yml as std
+
+semantic_models:
+  # E-commerce orders template
+  - name: orders
+    template: std.ecommerce_orders
+    parameters:
+      table_name: fct_orders
+      order_date_column: order_date
+      amount_column: total_amount
+
+  # Event tracking template  
+  - name: product_events
+    template: std.event_tracking
+    parameters:
+      table_name: fct_product_events
+      user_key: user_id
+
+  # Financial transactions template
+  - name: payments
+    template: std.financial_transactions
+    parameters:
+      table_name: fct_payments
+      transaction_date_column: payment_date
 ```
 
-### 2. Import System
+### 2. New Metric Syntax (New!)
+
+Reference semantic models instead of raw tables:
+
+```yaml
+# Old way - direct source reference
+metrics:
+  - name: revenue
+    type: simple
+    source: fct_orders
+    measure:
+      type: sum
+      column: amount
+
+# New way - semantic model reference
+metrics:
+  - name: revenue
+    type: simple
+    semantic_model: orders  # Reference the semantic model
+    measure: total_revenue  # Reference measure by name
+```
+
+Benefits:
+- Reuse measures defined in semantic models
+- Consistent aggregation logic
+- Cleaner metric definitions
+- Automatic inheritance of dimensions and entities
+
+### 3. Import System
 
 Import and reuse components across files:
 
@@ -926,6 +993,29 @@ domains:
 validation:
   require_descriptions: true
   require_labels: true
+
+# Auto-inference configuration (New!)
+auto_inference:
+  enabled: true
+  time_dimension_patterns:
+    suffix:
+      - _date
+      - _timestamp
+      - _created  # Custom: treat *_created as time dimensions
+    prefix:
+      - date_
+      - ts_  # Custom prefix
+  categorical_patterns:
+    suffix:
+      - _type
+      - _category
+      - _status
+    prefix:
+      - brand_  # Custom: brand_* fields are categorical
+    max_cardinality: 50  # Lower threshold
+  exclude_patterns:
+    prefix:
+      - internal_  # Don't infer from internal fields
 ```
 
 ### Configuration Features
@@ -936,6 +1026,7 @@ validation:
 - **🏢 Domain Settings** - Different configs per domain (marketing, finance, etc.)
 - **✅ Validation Rules** - Enforce organizational standards
 - **📊 Output Control** - Customize generated file format
+- **🤖 Auto-Inference** - Customize patterns for automatic dimension and entity detection
 
 **📚 Full Documentation**: See [docs/configuration.md](docs/configuration.md) for complete configuration reference.
 
@@ -945,8 +1036,11 @@ See [FEATURE_STATUS.md](FEATURE_STATUS.md) for detailed feature tracking.
 
 ### Recently Completed ✅:
 - **🏗️ Semantic Models** - Full support for defining semantic models with entities, dimensions, and measures
-- **📦 Semantic Model Templates** - Reusable templates for common semantic model patterns
+- **📦 Semantic Model Templates** - Reusable templates for common semantic model patterns with Jinja2 expansion
 - **🔗 Entity Management** - Define and reuse entity relationships across models
+- **📋 Entity Sets** - Reusable groups of entities that can be applied to multiple semantic models
+- **🔮 Auto-Inference** - Automatically detect dimensions and entities from schema based on naming patterns
+- **📚 Standard Template Library** - Pre-built templates for common patterns (e-commerce, events, finance, etc.)
 - **🤖 Smart Suggestions** - Schema analysis and metric generation
 - **📊 Metric Catalog** - Interactive documentation with search and lineage
 - **🔍 Enhanced Error Handling** - Pre-validation and detailed error reporting
@@ -955,7 +1049,6 @@ See [FEATURE_STATUS.md](FEATURE_STATUS.md) for detailed feature tracking.
 - Offset windows for cumulative metrics
 
 ### Coming Soon:
-- **🔮 Auto-Inference** - Automatically detect dimensions and entities from schema
 - **📚 Built-in Metric Library** - Pre-built templates for common business metrics
 - **⚡ Performance Optimization** - Query hints and materialization recommendations
 - **🧪 Testing Framework** - Automated metric validation and regression testing

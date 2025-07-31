@@ -57,6 +57,33 @@ class BDMConfig:
     log_level: str = "INFO"
     show_sql: bool = False
     show_yaml: bool = True
+    
+    # Auto-inference settings
+    auto_inference: Dict[str, Any] = field(default_factory=lambda: {
+        'enabled': True,
+        'time_dimension_patterns': {
+            'suffix': ['_date', '_at', '_time', '_timestamp', '_datetime'],
+            'prefix': ['date_', 'created_', 'updated_', 'modified_', 'deleted_'],
+            'exact': ['date', 'time', 'timestamp', 'created', 'updated']
+        },
+        'categorical_patterns': {
+            'suffix': ['_id', '_code', '_type', '_status', '_category', '_group', '_segment'],
+            'prefix': ['type_', 'status_', 'category_'],
+            'max_cardinality': 100,
+            'boolean_keywords': ['is_', 'has_', 'can_', 'should_', 'will_']
+        },
+        'numeric_measure_patterns': {
+            'suffix': ['_amount', '_value', '_price', '_cost', '_revenue', '_count', '_total', '_sum'],
+            'prefix': ['amount_', 'value_', 'price_', 'cost_', 'revenue_', 'total_'],
+            'exact': ['amount', 'value', 'price', 'cost', 'revenue', 'total', 'quantity', 'count']
+        },
+        'exclude_patterns': {
+            'prefix': ['tmp_', 'temp_', 'staging_'],
+            'suffix': ['_raw', '_hash', '_encrypted', '_backup'],
+            'exact': ['row_number', 'rank', 'dense_rank'],
+            'starts_with_underscore': True
+        }
+    })
 
 
 class ConfigLoader:
@@ -184,3 +211,28 @@ class ConfigLoader:
             self.config.log_level = log.get('level', 'INFO')
             self.config.show_sql = log.get('show_sql', False)
             self.config.show_yaml = log.get('show_yaml', True)
+            
+        # Auto-inference settings
+        if 'auto_inference' in config_data:
+            # Deep merge the auto_inference settings
+            ai_config = config_data['auto_inference']
+            
+            # Update enabled flag
+            if 'enabled' in ai_config:
+                self.config.auto_inference['enabled'] = ai_config['enabled']
+            
+            # Update patterns by merging with defaults
+            for pattern_type in ['time_dimension_patterns', 'categorical_patterns', 
+                                'numeric_measure_patterns', 'exclude_patterns']:
+                if pattern_type in ai_config:
+                    if pattern_type not in self.config.auto_inference:
+                        self.config.auto_inference[pattern_type] = {}
+                    
+                    # Merge each sub-key (suffix, prefix, exact, etc.)
+                    for key, value in ai_config[pattern_type].items():
+                        if isinstance(value, list):
+                            # For lists, replace entirely (don't merge)
+                            self.config.auto_inference[pattern_type][key] = value
+                        else:
+                            # For non-lists (like max_cardinality), just update
+                            self.config.auto_inference[pattern_type][key] = value
